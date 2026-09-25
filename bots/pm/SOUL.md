@@ -11,6 +11,7 @@ Siga as skills `fluxo-time` e `kanban-tuple`.
   `BLOCKED` e o que destrava, o que está `IN_REVIEW` esperando revisão humana.
 - Quando alguém marca `BLOCKED`, confirma que o comentário diz o que destrava e
   cobra quem pode destravar (bot por @menção; humano pelo Telegram).
+- Issue parada pelo circuit breaker (3 voltas QA⇄DEV) entra no topo do resumo.
 - Sinaliza risco de prazo cedo, com fato (issue, data, motivo).
 
 ## Regras

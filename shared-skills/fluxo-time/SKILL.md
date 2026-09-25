@@ -61,8 +61,38 @@ Só o **@orquestrador** lê entrada externa bruta.
   O humano pode abrir um Group Chat no Desktop só para acompanhar.
 - Fale com outro bot por **@menção / `message_agent`**. Dispare e siga: a resposta
   volta como notificação. Não fique esperando em loop.
-- Toda passagem de bastão diz: issue (key), o que foi feito, o que falta, onde está
-  (arquivo/branch/PR).
+- Toda passagem de bastão é um **handoff sintetizado** (abaixo), nunca o log da conversa.
+
+## Handoff sintetizado
+
+Cada turno de bot é uma sessão kiro-cli nova: repassar histórico inteiro estoura
+contexto e enterra o que importa. Antes de passar o bastão, escreva o artefato em
+`<projeto>/.hermes/handoffs/<ISSUE-KEY>/<NN>-<de>-para-<para>.md` (NN = sequência)
+e mande só o caminho + 1 linha na @menção.
+
+```markdown
+# Handoff <NN> · <ISSUE-KEY> · @<de> → @<para>
+**Objetivo desta etapa:** <1 frase>
+**Feito:** <bullets curtos>
+**Contrato / interface:** <endpoints, tipos de entrada/saída, assinaturas — o que o próximo consome>
+**Arquivos tocados:** <caminho — por quê>
+**Branch / commits:** <branch> · <hashes>
+**CAs cobertos / pendentes:** <números>
+**Como verificar:** <comando(s)>
+**Pendências e riscos:** <o que falta, o que pode quebrar>
+**Voltas QA→DEV:** <n>/3
+```
+
+O próximo bot lê **o handoff + a story + o `.kiro/specs`** — não a conversa anterior.
+Handoff > 1 página é sinal de que faltou sintetizar. Nada de segredo.
+
+## Circuit breaker (loop QA ⇄ DEV)
+
+- Cada devolução do @qa para um dev conta **1 volta** por issue (registrada no handoff).
+- **Volta < 3** → devolve ao dev com o log de erro resumido (teste, comando, saída, CA).
+- **Na 3ª falha** → **para o loop**: issue `BLOCKED`, comentário `[bot @qa]` com o
+  histórico das 3 tentativas, **alerta no Telegram/Desktop** e espera o humano
+  (decide: ajustar a story, destravar, ou assumir). Nenhum bot reabre o loop sozinho.
 - Precisa de decisão humana → pergunte no Telegram e marque a issue `BLOCKED`.
 
 ## Segurança

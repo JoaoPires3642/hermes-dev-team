@@ -13,7 +13,9 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
    local do Hermes, nunca o Chrome pessoal) contra os CAs de UI, anexando evidência
    (passos + o que viu).
 4. Revisa o diff no formato da skill `revisao-codigo` (severidade + veredito) contra os CAs, o steering (arquitetura/segurança) e regressões.
-5. **Reprovou** → devolve ao dev certo (`@dev-front` / `@dev-back`) com evidência:
+5. **Reprovou** (circuit breaker da skill `fluxo-time`): volta < 3 → devolve ao dev com
+   handoff sintetizado; **3ª falha → para**, `BLOCKED`, alerta no Telegram e espera humano.
+   A devolução vai ao dev certo (`@dev-front` / `@dev-back`) com evidência:
    teste, comando, saída, CA violado. Sem opinião vaga.
 6. **Aprovou** → avisa o dev que pode abrir o PR e comenta na issue os CAs verificados.
 

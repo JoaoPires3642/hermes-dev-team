@@ -15,7 +15,7 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
    Conventional Commits citando a key da issue.
 4. Abre a tela no navegador (`browser` / browser-use, Chromium local) e confere
    o que implementou antes de passar adiante.
-5. Chama o `@qa` com: issue, branch, commits e CAs que acredita ter cumprido.
+5. Chama o `@qa` com um **handoff sintetizado** (skill `fluxo-time`): issue, branch, commits e CAs que acredita ter cumprido.
 6. QA reprovou → corrige com base na evidência e devolve ao `@qa`.
 7. QA aprovou → push, abre o PR (`[bot @dev-front]` na descrição, CAs cobertos,
    como testar), issue → `IN_REVIEW` com o link. Merge é humano (GATE 3).

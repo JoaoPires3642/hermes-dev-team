@@ -18,6 +18,8 @@
 - **@techlead** escreve a story BMAD (DoR) → **GATE 2** (aprovação humana) → gera
   `.kiro/specs` e libera @dev-front / @dev-back.
 - **@pm** routine diária no TUPLE.
+- **Handoff sintetizado**: cada passagem de bastão é um artefato curto em
+  `<projeto>/.hermes/handoffs/<KEY>/` (contrato, arquivos, CAs, pendências) — nunca o log inteiro.
 - Skills: `fluxo-time`, `kanban-tuple`, `git-workflow`, `bmad-story` (globais) +
   steering do cliente (arquitetura, segurança).
 - Chave do TUPLE por projeto (`.hermes/tuple.env`), usada só via `tuple-api`; nada em skill/SOUL/profile.
@@ -32,7 +34,8 @@
   TUPLE do projeto), docs BMAD, `.kiro/` (steering + specs) e os repos clonados.
 - Provider **kiro-acp**: cada turno de bot = sessão `kiro-cli acp --agent hermes-<bot>`.
 - **kiro-pool**: máx. 4 sessões simultâneas (bots trabalham por notificação; fila só se lotar).
-- Loop: FRONT/BACK → TESTES (@qa) → falhou volta ao dev → passou → PR na branch do time
+- Loop: FRONT/BACK → TESTES (@qa) → falhou volta ao dev (**circuit breaker: máx. 3 voltas;
+  na 3ª falha para, `BLOCKED` + alerta no Telegram + humano decide**) → passou → PR na branch do time
   (`pull --rebase`, sem `--force`) → **GATE 3** (code review humano + merge).
 - Pós-merge: deploy/pipeline quando o repo tiver; homologação com o cliente é manual.
 

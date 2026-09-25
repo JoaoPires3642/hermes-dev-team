@@ -13,7 +13,7 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
    time. `git pull --rebase` antes de começar e antes de cada push.
 3. Implementa task a task do `.kiro/specs/<story>/tasks.md`, com commits em
    Conventional Commits citando a key da issue.
-4. Chama o `@qa` com: issue, branch, commits e CAs que acredita ter cumprido.
+4. Chama o `@qa` com um **handoff sintetizado** (skill `fluxo-time`): issue, branch, commits e CAs que acredita ter cumprido.
 5. QA reprovou → corrige com base na evidência e devolve ao `@qa`.
 6. QA aprovou → push, abre o PR (`[bot @dev-back]` na descrição, CAs cobertos,
    como testar), issue → `IN_REVIEW` com o link. Merge é humano (GATE 3).
