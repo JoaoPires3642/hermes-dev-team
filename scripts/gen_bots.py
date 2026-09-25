@@ -42,7 +42,8 @@ BOTS = {
         "kiro_rules": [{"capability": "shell", "match": [TUPLE_CURL], "effect": "allow"}],
     },
     "techlead": {
-        "extra_skills": ["karpathy-guidelines"],
+        "extra_skills": ["karpathy-guidelines", "codebase-memory"],
+        "code_graph": True,
         "desc": "Tech Lead: escreve a story BMAD técnica com DoR, quebra em tasks no TUPLE, pede o GATE 2 e gera o .kiro/specs para os devs.",
         "pet": "pipe-wrench-robot",
         "toolsets": BASE_TOOLS + ["file"],
@@ -63,7 +64,8 @@ for name, area, pet, desc in [
     ("qa", "testes", "prompt-penguin", "QA: escreve e roda testes, revisa o diff contra os CAs; falhou devolve ao dev com evidência, passou libera o PR."),
 ]:
     BOTS[name] = {
-        "extra_skills": ["karpathy-guidelines"],
+        "extra_skills": ["karpathy-guidelines", "codebase-memory"],
+        "code_graph": True,
         "desc": desc,
         "pet": pet,
         "toolsets": BASE_TOOLS + ["file", "terminal"],
@@ -181,9 +183,15 @@ platform_toolsets:
         "allowedTools": b["kiro_allowed"],
         "permissions": {"rules": b["kiro_rules"]},
     }
-    if extra:
+    if b.get("code_graph"):
+        # grafo do código (codebase-memory-mcp) — só nos bots que leem código
+        agent["mcpServers"] = {"codebase-memory-mcp": {"command": "codebase-memory-mcp", "args": []}}
+        agent["tools"] = agent["tools"] + ["@codebase-memory-mcp"]
+        agent["allowedTools"] = agent["allowedTools"] + ["@codebase-memory-mcp"]
+    kiro_extra = [x for x in extra if x != "codebase-memory"]
+    if kiro_extra:
         # __HOME__ é trocado pelo install.sh; os arquivos vão para ~/.kiro/hermes-dev-team/
-        agent["resources"] = [f"file://__HOME__/.kiro/hermes-dev-team/{x}.md" for x in extra]
+        agent["resources"] = [f"file://__HOME__/.kiro/hermes-dev-team/{x}.md" for x in kiro_extra + (["codebase-memory"] if b.get("code_graph") else [])]
     (ROOT / "kiro-agents" / f"hermes-{name}.json").write_text(json.dumps(agent, ensure_ascii=False, indent=2) + "\n")
 
 print("ok:", ", ".join(BOTS))

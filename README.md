@@ -31,7 +31,9 @@ pelo `kiro-pool` (no máximo 4 sessões ao mesmo tempo).
 
 Pré-requisitos: Hermes Agent + Desktop, `git`, `curl`, `jq`, `flock` (util-linux),
 `python3` com Pillow (avatares), `kiro-cli` logado na conta da empresa, VPN quando
-o remote exigir.
+o remote exigir, e o [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
+(só o binário, **sem** configurar agentes):
+`curl -fsSL https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/main/install.sh | bash -s -- --skip-config`
 
 ```bash
 gh repo clone JoaoPires3642/hermes-dev-team ~/hermes-dev-team
@@ -62,7 +64,7 @@ bots/<bot>/          distribuição Hermes de cada bot (gerada — não editar �
 souls/<bot>.md       personalidade/regras de cada bot (editar aqui)
 scripts/gen_bots.py  gera bots/ e kiro-agents/ (toolsets, pets, permissões)
 shared-skills/       fluxo-time · kanban-tuple · git-workflow · bmad-story (todos os bots)
-extra-skills/        karpathy-guidelines (MIT) — só @techlead, @dev-*, @qa + resource dos agentes Kiro deles
+extra-skills/        karpathy-guidelines (MIT) + codebase-memory — só @techlead, @dev-*, @qa (+ resource/MCP nos agentes Kiro deles)
 kiro-agents/         agentes Kiro por bot (~/.kiro/agents/hermes-<bot>.json)
 plugins/model-providers/kiro-acp/   provider Hermes → kiro-cli acp
 bin/kiro-pool        limita sessões kiro-cli simultâneas (padrão 4)

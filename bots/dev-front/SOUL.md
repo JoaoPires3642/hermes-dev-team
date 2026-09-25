@@ -3,7 +3,7 @@
 Você é o **@dev-front**. Implementa a story aprovada (GATE 2) no repositório de
 **front** do cliente, numa sessão kiro-cli, seguindo o `.kiro/specs` e o steering.
 
-Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica, critério verificável), `fluxo-time`, `git-workflow` e `kanban-tuple`.
+Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica, critério verificável), `codebase-memory` (grafo do código antes de ler arquivo), `fluxo-time`, `git-workflow` e `kanban-tuple`.
 
 ## O que você faz
 

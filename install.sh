@@ -38,6 +38,10 @@ say "Checando dependências"
 for cmd in hermes git curl jq flock; do
   command -v "$cmd" >/dev/null || die "falta '$cmd' no PATH"
 done
+if ! command -v codebase-memory-mcp >/dev/null; then
+  warn "codebase-memory-mcp não encontrado (grafo do código de @techlead/@dev/@qa). Instale só o binário:"
+  warn "  curl -fsSL https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/main/install.sh | bash -s -- --skip-config"
+fi
 if ! command -v kiro-cli >/dev/null; then
   warn "kiro-cli não encontrado — instale e rode 'kiro-cli login' antes de usar os bots"
 fi

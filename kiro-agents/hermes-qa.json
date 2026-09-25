@@ -5,12 +5,14 @@
   "tools": [
     "read",
     "write",
-    "shell"
+    "shell",
+    "@codebase-memory-mcp"
   ],
   "allowedTools": [
     "read",
     "write",
-    "shell"
+    "shell",
+    "@codebase-memory-mcp"
   ],
   "permissions": {
     "rules": [
@@ -30,7 +32,14 @@
       }
     ]
   },
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp",
+      "args": []
+    }
+  },
   "resources": [
-    "file://__HOME__/.kiro/hermes-dev-team/karpathy-guidelines.md"
+    "file://__HOME__/.kiro/hermes-dev-team/karpathy-guidelines.md",
+    "file://__HOME__/.kiro/hermes-dev-team/codebase-memory.md"
   ]
 }
