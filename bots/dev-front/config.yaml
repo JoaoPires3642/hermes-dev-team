@@ -1,0 +1,30 @@
+# Bot @dev-front — gerado por scripts/gen_bots.py
+model:
+  default: "auto"
+  provider: "kiro-acp"
+
+agent:
+  bot_mode_protocol: true
+
+display:
+  pet:
+    enabled: true
+    slug: "foxlynn"
+
+platform_toolsets:
+  cli:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - file
+    - terminal
+  telegram:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - file
+    - terminal

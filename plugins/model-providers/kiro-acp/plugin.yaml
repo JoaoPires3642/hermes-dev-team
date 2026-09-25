@@ -1,0 +1,5 @@
+name: kiro-acp-provider
+kind: model-provider
+version: 0.1.0
+description: Kiro CLI via ACP subprocess (kiro-cli acp) — cérebro dos bots do time de dev
+author: Joao Pires

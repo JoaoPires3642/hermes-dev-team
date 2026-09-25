@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# kiro-pool — limita quantas sessões kiro-cli rodam ao mesmo tempo.
+#
+# Uso: kiro-pool <args do kiro-cli...>        (ex.: kiro-pool acp --agent hermes-dev-back)
+# O provider kiro-acp chama isto no lugar do kiro-cli (HERMES_KIRO_ACP_COMMAND=kiro-pool).
+#
+# Segura uma de N vagas (flock) durante toda a vida do processo kiro-cli; se todas
+# estiverem ocupadas, espera na fila. A vaga é liberada quando o kiro-cli termina,
+# porque o descritor do lock é herdado pelo exec.
+#
+# Variáveis:
+#   KIRO_POOL_SLOTS   número de vagas (padrão 4)
+#   KIRO_POOL_DIR     onde ficam os locks (padrão $XDG_RUNTIME_DIR/kiro-pool ou /tmp/kiro-pool-$USER)
+#   KIRO_POOL_WAIT    segundos máximos de espera na fila (padrão 1800; 0 = infinito)
+#   KIRO_CLI          binário real (padrão kiro-cli)
+
+set -euo pipefail
+
+slots="${KIRO_POOL_SLOTS:-4}"
+dir="${KIRO_POOL_DIR:-${XDG_RUNTIME_DIR:-/tmp}/kiro-pool-${USER:-$(id -u)}}"
+max_wait="${KIRO_POOL_WAIT:-1800}"
+kiro="${KIRO_CLI:-kiro-cli}"
+
+mkdir -p "$dir"
+waited=0
+announced=0
+
+while :; do
+  for ((i = 1; i <= slots; i++)); do
+    exec 9>"$dir/slot-$i.lock"
+    if flock -n 9; then
+      # stdout é o canal JSON-RPC do ACP: mensagens do pool só vão para stderr.
+      echo "kiro-pool: vaga $i/$slots" >&2
+      exec "$kiro" "$@"
+    fi
+    exec 9>&-
+  done
+  if [[ $announced -eq 0 ]]; then
+    echo "kiro-pool: $slots vagas ocupadas, aguardando na fila..." >&2
+    announced=1
+  fi
+  if [[ $max_wait -gt 0 && $waited -ge $max_wait ]]; then
+    echo "kiro-pool: nenhuma vaga livre após ${max_wait}s" >&2
+    exit 75
+  fi
+  sleep 2
+  waited=$((waited + 2))
+done

@@ -1,0 +1,7 @@
+# segredos nunca entram no repo
+.env
+*.env
+secrets*
+auth.json
+__pycache__/
+*.pyc

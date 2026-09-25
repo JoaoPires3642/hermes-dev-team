@@ -1,0 +1,31 @@
+# Credenciais — NUNCA commitar
+auth.json
+.env
+.env.EXAMPLE
+# Estado de runtime
+state.db*
+hermes_state.db
+response_store.db*
+gateway.pid
+gateway_state.json
+processes.json
+auth.lock
+active_profile
+.update_check
+# Dados do usuário
+memories/
+sessions/
+logs/
+plans/
+workspace/
+home/
+pets/
+# Caches
+image_cache/
+audio_cache/
+document_cache/
+browser_screenshots/
+cache/
+checkpoints/
+sandboxes/
+local/

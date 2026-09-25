@@ -1,0 +1,19 @@
+name: po
+version: 0.1.0
+description: "Product Owner: transforma dores do cliente em user stories com critérios de aceite no padrão BMAD e mantém PRD/épicos em docs/."
+hermes_requires: ">=0.21.0"
+author: "Joao Pires"
+license: "proprietary"
+
+env_requires:
+  - name: TUPLE_API_KEY
+    description: "API key do Tuple (age como o membro que a criou)"
+    required: true
+  - name: HERMES_KIRO_ACP_COMMAND
+    description: "Binário que o provider kiro-acp executa (kiro-pool limita a 4 sessões)"
+    required: false
+    default: "kiro-pool"
+  - name: HERMES_KIRO_ACP_ARGS
+    description: "Argumentos do kiro-cli: agente Kiro deste bot"
+    required: false
+    default: "acp --agent hermes-po"

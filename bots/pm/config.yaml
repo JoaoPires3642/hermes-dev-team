@@ -1,0 +1,28 @@
+# Bot @pm — gerado por scripts/gen_bots.py
+model:
+  default: "auto"
+  provider: "kiro-acp"
+
+agent:
+  bot_mode_protocol: true
+
+display:
+  pet:
+    enabled: true
+    slug: "capybara-lulu"
+
+platform_toolsets:
+  cli:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - cronjob
+  telegram:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - cronjob

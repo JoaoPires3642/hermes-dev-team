@@ -1,0 +1,28 @@
+# Bot @po — gerado por scripts/gen_bots.py
+model:
+  default: "auto"
+  provider: "kiro-acp"
+
+agent:
+  bot_mode_protocol: true
+
+display:
+  pet:
+    enabled: true
+    slug: "peri-the-owl"
+
+platform_toolsets:
+  cli:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - file
+  telegram:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - file

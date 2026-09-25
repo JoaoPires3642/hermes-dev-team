@@ -1,0 +1,33 @@
+# Bot @orquestrador — gerado por scripts/gen_bots.py
+model:
+  default: "auto"
+  provider: "kiro-acp"
+
+agent:
+  bot_mode_protocol: true
+
+display:
+  pet:
+    enabled: true
+    slug: "octopus"
+
+platform_toolsets:
+  cli:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - cronjob
+  telegram:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - cronjob
+
+mcp_servers:
+  granola:
+    url: "https://mcp.granola.ai/mcp"
+    auth: oauth
