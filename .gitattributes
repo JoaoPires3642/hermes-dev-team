@@ -1,0 +1,23 @@
+# Os scripts deste repo são executados por bash e por python. Com core.autocrlf=true
+# (padrão de muita instalação do Git for Windows) o clone reescreve tudo em CRLF, e aí
+# `#!/usr/bin/env bash\r` não acha o interpretador: todo o bin/ e o install.sh quebram
+# antes de rodar a primeira linha. Forçar LF resolve na origem, para qualquer máquina.
+* text=auto eol=lf
+
+# bin/ não tem extensão, então precisa ser listado à parte
+bin/* text eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.txt  text eol=lf
+
+# esses só existem no Windows e o cmd.exe espera CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# formato do Excalidraw é JSON, mas grande: não vale diff de linha
+*.excalidraw text eol=lf -diff

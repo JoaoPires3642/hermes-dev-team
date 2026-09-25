@@ -14,8 +14,8 @@ Auditoria: <projeto>/.hermes/audit.jsonl  (uma linha JSON por transição, tenta
 Códigos de saída: 0 ok · 1 negado/erro · 2 uso · 3 circuit breaker disparou (alertar humano)
 """
 import argparse
+import contextlib
 import datetime as dt
-import fcntl
 import json
 import re
 import subprocess
@@ -23,6 +23,44 @@ import sys
 from pathlib import Path, PurePosixPath
 
 import yaml
+
+# stdout do Windows é cp1252 e engasga em → e emoji: o script morreria ao imprimir,
+# não ao fazer o trabalho. Os bots leem esta saída, então ela precisa sair.
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
+# Lock exclusivo durante o read-modify-write do manifest. Sem isso o hermes-task não
+# roda no Windows — e com ele fora do ar a máquina de estados, o DoD, os allowed_paths
+# e o circuit breaker deixam de ser fiscalizados.
+#
+# A trava fica num arquivo .lock ao lado, nunca no próprio manifest: o flock do Unix é
+# consultivo, mas o msvcrt.locking do Windows é obrigatório — travar o manifest e logo
+# depois abri-lo para ler faria o processo bloquear a si mesmo.
+if sys.platform == "win32":
+    import msvcrt
+
+    def _travar(fh):
+        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+else:
+    import fcntl
+
+    def _travar(fh):
+        fcntl.flock(fh, fcntl.LOCK_EX)
+
+
+@contextlib.contextmanager
+def trava(manifesto):
+    """Segura o lock do manifest enquanto o bloco roda (liberado no close)."""
+    alvo = Path(str(manifesto) + ".lock")
+    alvo.parent.mkdir(parents=True, exist_ok=True)
+    with open(alvo, "a+") as fh:
+        fh.seek(0)
+        _travar(fh)
+        yield
+
 
 BOTS = {"orquestrador", "po", "pm", "techlead", "dev-front", "dev-back", "qa"}
 DEVS = {"dev-front", "dev-back"}
@@ -214,8 +252,7 @@ CAMPOS_SET = {"objetivo", "tem_ui", "risco", "agentes", "repos", "criterios_acei
 def cmd_set(a):
     root = projeto(a.projeto)
     _, mf = paths(root, a.key)
-    with open(mf, "r+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with trava(mf):
         m = load(mf)
         for kv in a.pares:
             k, _, v = kv.partition("=")
@@ -248,8 +285,7 @@ def cmd_move(a):
     if para not in ESTADOS:
         die(f"estado desconhecido: {para} (veja: hermes-task states)", 2)
 
-    with open(mf, "r+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with trava(mf):
         m = load(mf)
         de = m["estado"]
 

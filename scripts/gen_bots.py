@@ -16,14 +16,18 @@ BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 
 BOTS = {
     "orquestrador": {
-        "desc": "Recebe as entradas (Granola MCP, issues marcadas no TUPLE, artefatos/PBIs), resume, propõe issues, pede o GATE 1 e distribui o trabalho por @menção.",
+        "desc": "Recebe as entradas (notas de call da Meetily, issues marcadas no TUPLE, artefatos/PBIs), resume, propõe issues, pede o GATE 1 e distribui o trabalho por @menção.",
         "pet": "octopus",
-        "toolsets": BASE_TOOLS + ["cronjob"],
-        "granola": True,
+        "toolsets": BASE_TOOLS + ["cronjob", "file"],
+        # só ele lê entrada externa bruta, então só ele precisa saber ler ASR
+        "extra_skills": ["transcricao-crua"],
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [
             {"capability": "fs_write", "match": [".hermes/tasks/**"], "effect": "allow"},
+            # sem NOTAS aqui de propósito: o meetily-notes roda agendado, fora do bot.
+            # O @orquestrador ingere texto externo (transcrição de call) — é o bot que
+            # menos deve ter shell. Ele só lê a pasta de notas (toolset `file`).
             {"capability": "shell", "match": [TUPLE_CURL, TASK], "effect": "allow"},
         ],
     },
@@ -143,7 +147,7 @@ env_requires:
     description: "Argumentos do kiro-cli: agente Kiro deste bot"
     required: false
     default: "acp --agent hermes-{name}"
-""")
+""", encoding="utf-8", newline="\n")
 
     browser = ""
     if b.get("browser"):
@@ -153,14 +157,10 @@ browser:
   backend: "browser-use"
   cloud_provider: "local"
 """
+    # As calls não entram mais por MCP: o meetily-notes exporta as transcrições da
+    # Meetily (local, MIT) como Markdown e o @orquestrador lê a pasta. Sem OAuth,
+    # sem servidor pago, e o toolset `file` já dá o acesso necessário.
     mcp = ""
-    if b.get("granola"):
-        mcp = """
-mcp_servers:
-  granola:
-    url: "https://mcp.granola.ai/mcp"
-    auth: oauth
-"""
     (d / "config.yaml").write_text(f"""# Bot @{name} — gerado por scripts/gen_bots.py
 model:
   default: "auto"
@@ -179,16 +179,16 @@ platform_toolsets:
 {yaml_list(b['toolsets'], 4)}
   telegram:
 {yaml_list(b['toolsets'], 4)}
-{browser}{mcp}""")
+{browser}{mcp}""", encoding="utf-8", newline="\n")
 
-    (d / ".gitignore").write_text(GITIGNORE)
+    (d / ".gitignore").write_text(GITIGNORE, encoding="utf-8", newline="\n")
 
     # skills só deste bot (além das shared-skills que todos recebem)
     extra = b.get("extra_skills", [])
-    (d / "extra-skills.txt").write_text("".join(f"{x}\n" for x in extra))
+    (d / "extra-skills.txt").write_text("".join(f"{x}\n" for x in extra), encoding="utf-8", newline="\n")
 
     soul_src = ROOT / "souls" / f"{name}.md"
-    (d / "SOUL.md").write_text(soul_src.read_text())
+    (d / "SOUL.md").write_text(soul_src.read_text(encoding="utf-8", newline="\n"), encoding="utf-8", newline="\n")
 
     rules = list(b["kiro_rules"])
     if name != "orquestrador" and not any(r["effect"] == "deny" for r in rules):
@@ -213,6 +213,7 @@ platform_toolsets:
     if kiro_extra:
         # __HOME__ é trocado pelo install.sh; os arquivos vão para ~/.kiro/hermes-dev-team/
         agent["resources"] = [f"file://__HOME__/.kiro/hermes-dev-team/{x}.md" for x in kiro_extra + (["codebase-memory"] if b.get("code_graph") else [])]
-    (ROOT / "kiro-agents" / f"hermes-{name}.json").write_text(json.dumps(agent, ensure_ascii=False, indent=2) + "\n")
+    (ROOT / "kiro-agents" / f"hermes-{name}.json").write_text(
+        json.dumps(agent, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 print("ok:", ", ".join(BOTS))
