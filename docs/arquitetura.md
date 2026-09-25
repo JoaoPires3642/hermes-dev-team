@@ -11,9 +11,10 @@
 ## 2. Hermes — Bot Mode
 - Bot = profile persistente (SOUL, memória, skills, routines). Bot ≠ subagente.
 - **@orquestrador** recebe tudo e resume → **GATE 1** (aprovação humana do resumo e
-  das issues propostas) → cria issues no TUPLE e abre a **sala do projeto** (Group Chat).
+  das issues propostas) → cria issues no TUPLE e chama os bots por @menção.
 - Bots conversam por **@menção / message_agent** (dispara e segue; resposta volta como
-  notificação).
+  notificação). **Sem sala obrigatória**: o registro fica nos comentários da issue no
+  TUPLE; Group Chat no Desktop é opcional, só para o humano acompanhar.
 - **@techlead** escreve a story BMAD (DoR) → **GATE 2** (aprovação humana) → gera
   `.kiro/specs` e libera @dev-front / @dev-back.
 - **@pm** routine diária no TUPLE.

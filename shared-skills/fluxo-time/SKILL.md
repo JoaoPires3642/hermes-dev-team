@@ -14,7 +14,7 @@ metadata:
 
 | Bot | Faz | Não faz |
 |---|---|---|
-| @orquestrador | lê entradas, resume, propõe issues, pede GATE 1, abre a sala e distribui | não codifica, não mexe em repo |
+| @orquestrador | lê entradas, resume, propõe issues, pede GATE 1 e distribui por @menção | não codifica, não mexe em repo |
 | @po | dor do cliente → user story + CAs; mantém PRD/épicos em `docs/` | não escreve spec técnica nem código |
 | @pm | prazos, cycles, impedimentos; routine diária no TUPLE | não altera escopo |
 | @techlead | story BMAD técnica + DoR, pede GATE 2, gera `.kiro/specs` | não implementa |
@@ -41,14 +41,17 @@ Só o **@orquestrador** lê entrada externa bruta.
 ## Gates humanos (ninguém pula)
 
 - **GATE 1** — @orquestrador manda resumo + issues propostas. Só depois do OK:
-  cria as issues no TUPLE (`BACKLOG`) e abre a sala do projeto.
+  cria as issues no TUPLE (`BACKLOG`) e chama os bots por @menção.
 - **GATE 2** — @techlead manda a story BMAD (DoR ok). Só depois do OK: gera
   `.kiro/specs` e libera os devs.
 - **GATE 3** — PR aberto → humano revisa e faz merge. Bot nunca faz merge nem
   move issue para `DONE`.
 
-## Handoffs
+## Handoffs (sem sala)
 
+- Não existe sala obrigatória. Os bots se falam direto por **@menção / `message_agent`**
+  e o **registro oficial é o comentário na issue do TUPLE** (`[bot @nome] ...`).
+  O humano pode abrir um Group Chat no Desktop só para acompanhar.
 - Fale com outro bot por **@menção / `message_agent`**. Dispare e siga: a resposta
   volta como notificação. Não fique esperando em loop.
 - Toda passagem de bastão diz: issue (key), o que foi feito, o que falta, onde está
