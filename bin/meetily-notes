@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""meetily-notes — transforma as calls da Meetily em notas Markdown para o @orquestrador.
+
+Substitui o Granola MCP: em vez de o bot consultar um MCP autenticado, ele lê uma
+pasta de Markdown. A Meetily (MIT, 100% local) guarda tudo num SQLite; este script
+lê esse banco em modo somente-leitura e escreve uma nota por call.
+
+  meetily-notes novas   [--inbox DIR] [--db PATH]   # só as calls ainda não exportadas
+  meetily-notes todas   [--inbox DIR] [--db PATH]   # reexporta tudo (ignora a marca)
+  meetily-notes onde                                # mostra o banco e a inbox detectados
+
+Cliente/projeto vem do título da call, por convenção: "[Cliente] Assunto" ou
+"Cliente - Assunto". Sem prefixo reconhecível a nota sai em `_sem-cliente` e o
+@orquestrador pergunta — nunca inventa (regra do SOUL dele).
+
+A Meetily usa WAL: o banco é copiado para um temporário antes da leitura, então isto
+nunca disputa lock com o app aberto.
+
+Códigos de saída: 0 ok · 1 erro · 2 uso
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
+
+DB_NOME = "meeting_minutes.sqlite"
+MARCA = ".ultima-exportacao.json"
+
+
+def inbox_padrao():
+    """~/Documentos/_calls (convenção do repo) ou ~/Documents/_calls num Windows em inglês."""
+    casa = Path.home()
+    for nome in ("Documentos", "Documents"):
+        if (casa / nome).is_dir():
+            return casa / nome / "_calls"
+    return casa / "Documentos" / "_calls"
+
+
+LOG = ".meetily-notes.log"
+
+
+def registrar(inbox, msg):
+    """Uma linha por execução. É o único rastro quando roda agendado, sem console."""
+    try:
+        carimbo = dt.datetime.now().isoformat(timespec="seconds")
+        with open(Path(inbox) / LOG, "a", encoding="utf-8") as fh:
+            fh.write(carimbo + "  " + msg + "\n")
+    except OSError:
+        pass  # log é diagnóstico; nunca derruba a exportação
+
+
+def erro(msg, inbox=None):
+    if inbox:
+        registrar(inbox, "ERRO: " + msg)
+    print("\033[1;31m[erro]\033[0m " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def achar_db(explicito, inbox=None):
+    """Localiza o meeting_minutes.sqlite da Meetily nos 3 sistemas."""
+    if explicito:
+        p = Path(explicito)
+        if not p.is_file():
+            erro("banco não encontrado: " + str(p), inbox)
+        return p
+
+    candidatos = []
+    if sys.platform == "win32":
+        for raiz in (os.getenv("APPDATA"), os.getenv("LOCALAPPDATA")):
+            if raiz:
+                candidatos += list(Path(raiz).glob("*/" + DB_NOME))
+                candidatos += list(Path(raiz).glob("*/*/" + DB_NOME))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+        candidatos += list(base.glob("*/" + DB_NOME))
+    else:
+        base = Path(os.getenv("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+        candidatos += list(base.glob("*/" + DB_NOME))
+
+    if not candidatos:
+        erro("não achei o " + DB_NOME + ". A Meetily está instalada e você já gravou "
+             "ao menos uma call? Se sim, passe o caminho com --db.", inbox)
+    # o mais recente ganha, caso exista instalação antiga
+    return max(candidatos, key=lambda p: p.stat().st_mtime)
+
+
+def abrir_somente_leitura(db):
+    """Copia banco + WAL para um temporário e abre de lá (não disputa lock com o app)."""
+    tmp = Path(tempfile.mkdtemp(prefix="meetily-notes-"))
+    shutil.copy2(db, tmp / db.name)
+    for sufixo in ("-wal", "-shm"):
+        origem = db.with_name(db.name + sufixo)
+        if origem.exists():
+            shutil.copy2(origem, tmp / (db.name + sufixo))
+    con = sqlite3.connect("file:" + str(tmp / db.name) + "?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def separar_cliente(titulo):
+    """[ACME] Kickoff  ou  ACME - Kickoff   ->   (ACME, Kickoff)."""
+    m = re.match(r"^\s*\[([^\]]+)\]\s*(.*)$", titulo)
+    if not m:
+        m = re.match(r"^\s*([^\-–—]{2,40}?)\s*[\-–—]\s*(.+)$", titulo)
+    if m:
+        return m.group(1).strip(), (m.group(2).strip() or titulo.strip())
+    return "_sem-cliente", titulo.strip()
+
+
+def slug(txt):
+    s = re.sub(r"[^\w\s-]", "", txt, flags=re.UNICODE).strip().lower()
+    return re.sub(r"[\s_-]+", "-", s).strip("-")[:60] or "sem-titulo"
+
+
+def tabelas(con):
+    return {r[0] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def ler_calls(con):
+    presentes = tabelas(con)
+    if "meetings" not in presentes:
+        erro("este banco não parece ser da Meetily (sem tabela 'meetings')")
+
+    calls = []
+    for m in con.execute("SELECT id, title, created_at FROM meetings ORDER BY created_at"):
+        item = {"id": m["id"], "titulo": m["title"] or "(sem título)",
+                "criado_em": m["created_at"] or "", "resumo": "", "pontos": "",
+                "acoes": "", "notas": "", "transcricao": ""}
+
+        if "transcripts" in presentes:
+            partes, resumos, pontos, acoes = [], [], [], []
+            for t in con.execute(
+                    "SELECT transcript, summary, action_items, key_points "
+                    "FROM transcripts WHERE meeting_id = ? ORDER BY timestamp",
+                    (m["id"],)):
+                if t["transcript"]:
+                    partes.append(t["transcript"])
+                for campo, destino in (("summary", resumos), ("key_points", pontos),
+                                       ("action_items", acoes)):
+                    if t[campo]:
+                        destino.append(t[campo])
+            item["transcricao"] = "\n".join(partes).strip()
+            item["resumo"] = "\n".join(resumos).strip()
+            item["pontos"] = "\n".join(pontos).strip()
+            item["acoes"] = "\n".join(acoes).strip()
+
+        # resumo final do pipeline da Meetily, quando existir, tem prioridade
+        if "summary_processes" in presentes:
+            r = con.execute("SELECT result FROM summary_processes "
+                            "WHERE meeting_id = ? AND status = 'completed'",
+                            (m["id"],)).fetchone()
+            if r and r["result"]:
+                item["resumo"] = r["result"].strip()
+
+        if "meeting_notes" in presentes:
+            n = con.execute("SELECT notes_markdown FROM meeting_notes "
+                            "WHERE meeting_id = ?", (m["id"],)).fetchone()
+            if n and n["notes_markdown"]:
+                item["notas"] = n["notes_markdown"].strip()
+
+        calls.append(item)
+    return calls
+
+
+def escrever_nota(call, inbox):
+    cliente, assunto = separar_cliente(call["titulo"])
+    data = call["criado_em"][:10] or dt.date.today().isoformat()
+    destino = inbox / slug(cliente)
+    destino.mkdir(parents=True, exist_ok=True)
+    caminho = destino / (data + "-" + slug(assunto) + ".md")
+
+    partes = [
+        "---",
+        "meeting_id: " + call["id"],
+        "cliente: " + cliente,
+        "titulo: " + assunto,
+        "criado_em: " + call["criado_em"],
+        "fonte: meetily",
+        "---",
+        "",
+        "# " + assunto,
+        "",
+        "> Cliente: **" + cliente + "** · call de " + data +
+        " · transcrita localmente pela Meetily.",
+        "",
+    ]
+    for cabecalho, chave in (("## Resumo", "resumo"),
+                             ("## Pontos-chave", "pontos"),
+                             ("## Action items", "acoes"),
+                             ("## Notas escritas na call", "notas"),
+                             ("## Transcrição", "transcricao")):
+        if call[chave]:
+            partes += [cabecalho, "", call[chave], ""]
+
+    caminho.write_text("\n".join(partes), encoding="utf-8")
+    return caminho
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Exporta as calls da Meetily como Markdown.")
+    ap.add_argument("comando", choices=("novas", "todas", "onde"))
+    ap.add_argument("--db", help="caminho do " + DB_NOME + " (padrão: detecta sozinho)")
+    padrao = inbox_padrao()
+    ap.add_argument("--inbox", default=str(padrao),
+                    help="pasta de saída (padrão: " + str(padrao) + ")")
+    args = ap.parse_args()
+
+    inbox = Path(args.inbox)
+    db = achar_db(args.db, inbox if args.comando != "onde" else None)
+
+    if args.comando == "onde":
+        print("banco: " + str(db))
+        print("inbox: " + str(inbox))
+        return
+
+    inbox.mkdir(parents=True, exist_ok=True)
+    marca = inbox / MARCA
+    desde = ""
+    if args.comando == "novas" and marca.is_file():
+        desde = json.loads(marca.read_text(encoding="utf-8")).get("ate", "")
+
+    con = abrir_somente_leitura(db)
+    try:
+        calls = ler_calls(con)
+    finally:
+        con.close()
+
+    novas = [c for c in calls if c["criado_em"] > desde] if desde else calls
+    for c in novas:
+        print(escrever_nota(c, inbox))
+
+    # roda agendado de 15 em 15 min sem console: sem este log, falha é invisível
+    registrar(inbox, str(len(novas)) + " nota(s) de " + str(len(calls)) + " call(s)")
+
+    if calls:
+        marca.write_text(json.dumps(
+            {"ate": max(c["criado_em"] for c in calls),
+             "exportado_em": dt.datetime.now().isoformat(timespec="seconds")},
+            ensure_ascii=False), encoding="utf-8")
+
+    print("\n" + str(len(novas)) + " nota(s) nova(s) em " + str(inbox), file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

@@ -19,6 +19,7 @@ platform_toolsets:
     - skills
     - todo
     - cronjob
+    - file
   telegram:
     - clarify
     - memory
@@ -26,8 +27,4 @@ platform_toolsets:
     - skills
     - todo
     - cronjob
-
-mcp_servers:
-  granola:
-    url: "https://mcp.granola.ai/mcp"
-    auth: oauth
+    - file

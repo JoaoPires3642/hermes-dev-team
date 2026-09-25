@@ -7,7 +7,7 @@
 
 ## Projeto
 - Nome / descrição curta:
-- Pasta do Granola:
+- Prefixo do cliente no título das calls (vira a pasta em `~/Documentos/_calls/`):
 - Pasta de docs BMAD: `docs/`
 - Humanos no time (nome · papel · quem revisa):
 - Onde tirar dúvida técnica:

@@ -1,6 +1,6 @@
 name: orquestrador
 version: 0.1.0
-description: "Recebe as entradas (Granola MCP, issues marcadas no TUPLE, artefatos/PBIs), resume, propõe issues, pede o GATE 1 e distribui o trabalho por @menção."
+description: "Recebe as entradas (notas de call da Meetily, issues marcadas no TUPLE, artefatos/PBIs), resume, propõe issues, pede o GATE 1 e distribui o trabalho por @menção."
 hermes_requires: ">=0.21.0"
 author: "Joao Pires"
 license: "proprietary"

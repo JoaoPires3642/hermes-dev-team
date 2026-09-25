@@ -39,7 +39,8 @@ e registra quando aprende algo caro. Virou regra permanente → promova para
 
 ## Entradas
 
-1. **Call** — nota nova no Granola (MCP), pasta = cliente/projeto.
+1. **Call** — nota nova em `~/Documentos/_calls/<cliente>/` (exportada da Meetily pelo
+   `meetily-notes`); a pasta = cliente/projeto. Caiu em `_sem-cliente/`? Pergunte de quem é.
 2. **Issue marcada no TUPLE** — bug, pedido, PBI já existente.
 3. **Artefato / PBI** — enviado pelo humano no Telegram/Desktop.
 

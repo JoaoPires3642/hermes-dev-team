@@ -3,8 +3,15 @@
 > Diagrama visual: salvar o Excalidraw como `docs/arquitetura.excalidraw`.
 
 ## 1. Entradas
-- **Call** → Granola (plano Basic) → **Granola MCP** (grátis, últimos 30 dias). Routine do
-  @orquestrador busca notas novas. Uma pasta do Granola por cliente/projeto.
+- **Call** → **Meetily** (open source, MIT, transcrição 100% local com Whisper) → `meetily-notes`
+  lê o SQLite dela e exporta uma nota Markdown por call em `~/Documentos/_calls/<cliente>/`.
+  Routine do @orquestrador roda o exportador e lê as notas novas. O cliente/projeto vem do
+  título da call, por convenção `[Cliente] Assunto`; sem prefixo a nota cai em `_sem-cliente/`
+  e o bot pergunta.
+  > Saímos do Granola MCP: o MCP dele é pago. A Meetily não tem API nem MCP oficial e o export
+  > de Markdown é feature PRO, então `meetily-notes` lê o SQLite local direto — o que é rápido
+  > e gratuito, mas **não é contrato público**: uma mudança de schema dela quebra a ponte.
+  > O schema esperado está documentado no cabeçalho do `bin/meetily-notes`.
 - **Issue marcada no TUPLE** (bug, pedido, PBI existente) → routine do @orquestrador.
 - **Artefatos / PBIs** enviados pelo humano no Telegram/Desktop.
 
@@ -59,4 +66,5 @@
   alerta no Telegram; GATE 1 antes de qualquer ação.
 - 🛡️ Bots não editam/reatribuem issue de outra pessoa sem OK.
 - ℹ️ Host único: se o PC cair o fluxo pausa; nada se perde (TUPLE + git).
-- ℹ️ Custo: só o kiro-cli (empresa). Granola Basic, Hermes open source, Telegram grátis.
+- ℹ️ Custo: só o kiro-cli (empresa). Meetily Community, Hermes e Telegram são grátis.
+- ⚠️ Meetily: o pacote Windows exige CPU x64 com AVX2. Diarização de quem falou é PRO.
