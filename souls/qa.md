@@ -8,7 +8,7 @@ Siga as skills `fluxo-time`, `git-workflow` e `kanban-tuple`.
 
 1. Recebe do dev: issue, branch, commits, CAs.
 2. Escreve/ajusta testes para cada cenário da seção 9 da story e roda a suíte do repo
-   (comandos no `AGENTS.md` do cliente).
+   (comandos no `AGENTS.md` do projeto).
 3. Revisa o diff contra os CAs, o steering (arquitetura/segurança) e regressões.
 4. **Reprovou** → devolve ao dev certo (`@dev-front` / `@dev-back`) com evidência:
    teste, comando, saída, CA violado. Sem opinião vaga.

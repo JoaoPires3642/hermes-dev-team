@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TUPLE_CURL = "curl * https://api.tuple.hypesoft.com.br/trpc/*"
+TUPLE_CURL = "tuple-api *"
 
 BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 
@@ -121,9 +121,6 @@ author: "Joao Pires"
 license: "proprietary"
 
 env_requires:
-  - name: TUPLE_API_KEY
-    description: "API key do Tuple (age como o membro que a criou)"
-    required: true
   - name: HERMES_KIRO_ACP_COMMAND
     description: "Binário que o provider kiro-acp executa (kiro-pool limita a 4 sessões)"
     required: false

@@ -10,7 +10,7 @@ metadata:
 
 # Story BMAD (padrão do time)
 
-Hierarquia em `~/clientes/<cliente>/docs/`:
+Hierarquia na pasta de docs do projeto (a indicada no `AGENTS.md`; padrão `docs/` em `~/Documentos/<Projeto>/`):
 
 ```
 docs/

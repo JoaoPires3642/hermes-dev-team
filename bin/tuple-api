@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# tuple-api — chama a API tRPC do Tuple com a chave DO PROJETO, sem expor a chave.
+#
+#   tuple-api <pasta-do-projeto> get  <procedure> '<json-input>'
+#   tuple-api <pasta-do-projeto> post <procedure> '<json-body>'
+#
+# A chave vem de <pasta-do-projeto>/.hermes/tuple.env (TUPLE_API_KEY=...), chmod 600.
+# Cada projeto tem a sua. Ex.:
+#   tuple-api ~/Documentos/Agregador_seller get issues.getByKey '{"key":"SELL-12","workspaceId":"..."}'
+
+set -euo pipefail
+
+[[ $# -ge 3 ]] || { sed -n '2,10p' "$0" >&2; exit 2; }
+dir=${1%/} method=$2 proc=$3 json=${4:-'{}'}
+
+[[ -f "$dir/AGENTS.md" ]] || { echo "tuple-api: $dir não parece uma pasta de projeto (sem AGENTS.md)" >&2; exit 2; }
+envf="$dir/.hermes/tuple.env"
+[[ -r "$envf" ]] || { echo "tuple-api: $envf não encontrado" >&2; exit 2; }
+key=$(sed -n 's/^TUPLE_API_KEY=//p' "$envf" | tail -1)
+[[ -n "$key" ]] || { echo "tuple-api: TUPLE_API_KEY vazio em $envf" >&2; exit 2; }
+[[ "$proc" =~ ^[a-zA-Z]+\.[a-zA-Z]+$ ]] || { echo "tuple-api: procedure inválida: $proc" >&2; exit 2; }
+
+base=${TUPLE_API_BASE:-https://api.tuple.hypesoft.com.br}
+# header de auth vai por stdin (curl -K -): a chave não aparece em argv/ps
+auth() { printf 'header = "Authorization: Bearer %s"\n' "$key"; }
+
+case "$method" in
+  get)  auth | curl -sS --fail-with-body -K - -G "$base/trpc/$proc" --data-urlencode "input=$json" ;;
+  post) auth | curl -sS --fail-with-body -K - -X POST "$base/trpc/$proc" \
+          -H 'Content-Type: application/json' --data-binary "$json" ;;
+  *)    echo "tuple-api: método deve ser get ou post" >&2; exit 2 ;;
+esac
+echo

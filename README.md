@@ -16,10 +16,10 @@ Arquitetura completa: [docs/arquitetura.md](docs/arquitetura.md).
 
 | Bot | Papel | Pet | Kiro pode |
 |---|---|---|---|
-| @orquestrador | entradas, resumo, GATE 1, distribui | octopus | ler + curl no TUPLE |
-| @po | dor → user story, PRD/épicos | peri-the-owl | ler, escrever `docs/`, curl TUPLE |
-| @pm | prazo, cycles, impedimentos (routine diária) | capybara-lulu | ler + curl TUPLE |
-| @techlead | story BMAD + DoR, GATE 2, `.kiro/specs` | pipe-wrench-robot | ler, escrever `docs/` e `.kiro/`, git leitura, curl TUPLE |
+| @orquestrador | entradas, resumo, GATE 1, distribui | octopus | ler + tuple-api |
+| @po | dor → user story, PRD/épicos | peri-the-owl | ler, escrever `docs/`, tuple-api |
+| @pm | prazo, cycles, impedimentos (routine diária) | capybara-lulu | ler + tuple-api |
+| @techlead | story BMAD + DoR, GATE 2, `.kiro/specs` | pipe-wrench-robot | ler, escrever `docs/` e `.kiro/`, git leitura, tuple-api |
 | @dev-front | implementa front, commit/push, PR | foxlynn | ler, escrever, shell (sem force/reset --hard/--no-verify) |
 | @dev-back | implementa back, commit/push, PR | fat-robot | idem |
 | @qa | testes + revisão, devolve com evidência | prompt-penguin | idem |
@@ -36,7 +36,7 @@ o remote exigir.
 ```bash
 gh repo clone JoaoPires3642/hermes-dev-team ~/hermes-dev-team
 cd ~/hermes-dev-team
-./install.sh            # pergunta a TUPLE_API_KEY na 1ª vez (fica em ~/.config/hermes-dev-team/secrets.env)
+./install.sh
 ```
 
 Depois, uma vez por máquina:
@@ -48,8 +48,10 @@ Depois, uma vez por máquina:
 5. Routines no Desktop (aba Bots → Routines):
    - @orquestrador: a cada 15 min — "buscar notas novas no Granola MCP e issues marcadas no TUPLE"
    - @pm: dias úteis 9h — "resumo do board: IN_PROGRESS parado, BLOCKED, IN_REVIEW"
-6. Pasta do cliente: `cp -r templates/cliente ~/clientes/<cliente>` e preencher o `AGENTS.md`
-   e o `.kiro/steering/` (arquitetura, segurança — sem segredos).
+6. Projeto novo: `cp -r templates/projeto ~/Documentos/<Projeto>` (os repos ficam dentro) e preencher:
+   - `AGENTS.md` — IDs do TUPLE, repos, branches, restrições (sem segredos)
+   - `.kiro/steering/` — arquitetura, segurança, padrões
+   - `.hermes/tuple.env` — API key do TUPLE **deste projeto** (`chmod 600`)
 
 Atualizar: `git pull && ./install.sh` (memórias e sessões dos bots ficam).
 
@@ -63,7 +65,8 @@ shared-skills/       fluxo-time · kanban-tuple · git-workflow · bmad-story
 kiro-agents/         agentes Kiro por bot (~/.kiro/agents/hermes-<bot>.json)
 plugins/model-providers/kiro-acp/   provider Hermes → kiro-cli acp
 bin/kiro-pool        limita sessões kiro-cli simultâneas (padrão 4)
-templates/cliente/   AGENTS.md, docs/, .kiro/steering/ de um cliente novo
+bin/tuple-api        chama o TUPLE com a chave do projeto
+templates/projeto/   AGENTS.md, docs/, .kiro/steering/, .hermes/tuple.env.example de um projeto novo
 install.sh           instala/atualiza tudo nesta máquina
 ```
 
@@ -72,9 +75,10 @@ rode `python3 scripts/gen_bots.py`, commite e `./install.sh`.
 
 ## Segredos
 
-Nenhum segredo neste repo. `TUPLE_API_KEY` fica em
-`~/.config/hermes-dev-team/secrets.env` (chmod 600) e é copiada para o `.env` de
-cada profile. Credenciais git vêm do credential helper da máquina.
+Nenhum segredo neste repo nem nos profiles dos bots. **Cada projeto tem a sua API key
+do TUPLE**, em `~/Documentos/<Projeto>/.hermes/tuple.env` (chmod 600). Os bots só
+chamam a API pelo `tuple-api <pasta-do-projeto> get|post <procedure> '<json>'`, que lê
+a chave do projeto sem expô-la. Credenciais git vêm do credential helper da máquina.
 
 ## Estado (v0.1.0)
 
@@ -82,4 +86,4 @@ cada profile. Credenciais git vêm do credential helper da máquina.
 - ⚠️ **Não testado ponta a ponta**: provider `kiro-acp` (reusa o cliente ACP do
   `copilot-acp` do Hermes) e as regras `permissions` dos agentes Kiro — validar numa
   máquina com `kiro-cli` logado (`hermes -p dev-back chat` e mandar um "oi").
-- ⚠️ A API key do TUPLE precisa ter escopo no projeto do cliente (dá 403 fora dele).
+- ⚠️ A API key do TUPLE de cada projeto precisa ter escopo naquele projeto (dá 403 fora dele).

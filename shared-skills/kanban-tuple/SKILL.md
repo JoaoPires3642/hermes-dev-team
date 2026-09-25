@@ -16,9 +16,10 @@ fica só na conversa.
 
 ## Autenticação
 
-- A chave vem **só** da variável `TUPLE_API_KEY` (cofre / `.env` do profile).
-  **Nunca** escrever a chave em skill, SOUL, AGENTS.md, commit, comentário ou log.
-- Toda request: `Authorization: Bearer $TUPLE_API_KEY`.
+- **Cada projeto tem a sua API key**, em `<pasta-do-projeto>/.hermes/tuple.env`
+  (`TUPLE_API_KEY=...`, chmod 600, fora de qualquer repo).
+- **Sempre** chame a API pelo helper `tuple-api` — ele lê a chave do projeto e
+  nunca a expõe em comando, log ou saída. Nunca leia, imprima ou copie a chave.
 - A chave age **como o membro que a criou** (o João). Por isso todo comentário e
   toda descrição criada por bot começa com `[bot @<seu-nome>]`.
 - Erros: `401` chave inválida · `403` fora do escopo/projeto (a chave pode não
@@ -27,7 +28,7 @@ fica só na conversa.
 ## Identificadores do projeto
 
 `workspaceId`, `projectId`, `teamId`, prefixo das issues e `assigneeId` ficam no
-`AGENTS.md` da pasta do cliente (`~/clientes/<cliente>/AGENTS.md`). Ler de lá;
+`AGENTS.md` da pasta do projeto (`~/Documentos/<Projeto>/AGENTS.md`). Ler de lá;
 se faltar algum, perguntar ao humano — não chutar.
 
 Para descobrir o ID de uma pessoa: ler o objeto `assignee` de uma issue que ela
@@ -39,12 +40,14 @@ já tenha (`members.*` é inacessível pela API).
 - **Mutation** — `POST /trpc/<proc>` com o JSON no body
 
 ```bash
-curl -s "https://api.tuple.hypesoft.com.br/trpc/issues.getByKey?input=$(jq -rn --arg k SELL-12 --arg w "$WS" '{key:$k,workspaceId:$w}|@uri')" \
-  -H "Authorization: Bearer $TUPLE_API_KEY"
+P=~/Documentos/<Projeto>
 
-curl -s -X POST https://api.tuple.hypesoft.com.br/trpc/issues.addComment \
-  -H "Authorization: Bearer $TUPLE_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"issueId":"<id>","content":"[bot @dev-back] PR aberto: <link>. CAs cobertos: 1, 2, 4."}'
+# query  (GET  /trpc/<proc>?input=...)
+tuple-api "$P" get  issues.getByKey '{"key":"ABC-12","workspaceId":"<ws>"}'
+
+# mutation (POST /trpc/<proc>)
+tuple-api "$P" post issues.addComment \
+  '{"issueId":"<id>","content":"[bot @dev-back] PR aberto: <link>. CAs cobertos: 1, 2, 4."}'
 ```
 
 - `issues.list`: `limit` ≤ 100; paginar com `offset` usando o `total`.

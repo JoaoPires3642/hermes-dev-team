@@ -19,7 +19,7 @@
 - **@pm** routine diária no TUPLE.
 - Skills: `fluxo-time`, `kanban-tuple`, `git-workflow`, `bmad-story` (globais) +
   steering do cliente (arquitetura, segurança).
-- Cofre: `TUPLE_API_KEY` no `.env` de cada profile; nada em skill/SOUL.
+- Chave do TUPLE por projeto (`.hermes/tuple.env`), usada só via `tuple-api`; nada em skill/SOUL/profile.
 
 ## 3. TUPLE — fonte da verdade
 - Workspace → Projeto → Épicos → Tasks (DoR).
@@ -27,8 +27,8 @@
 - Bots agem como o João e marcam `[bot @nome]`.
 
 ## 4. Workspace + kiro-cli (cérebro e execução)
-- `~/clientes/<cliente>/` (pasta, não repo): `docs/` (PRD, arquitetura, épicos, stories),
-  `.kiro/` (steering + specs), `AGENTS.md`, `repos/` (clones git).
+- `~/Documentos/<Projeto>/` (pasta, não repo): `AGENTS.md`, `.hermes/tuple.env` (chave do
+  TUPLE do projeto), docs BMAD, `.kiro/` (steering + specs) e os repos clonados.
 - Provider **kiro-acp**: cada turno de bot = sessão `kiro-cli acp --agent hermes-<bot>`.
 - **kiro-pool**: máx. 4 sessões simultâneas (bots trabalham por notificação; fila só se lotar).
 - Loop: FRONT/BACK → TESTES (@qa) → falhou volta ao dev → passou → PR na branch do time

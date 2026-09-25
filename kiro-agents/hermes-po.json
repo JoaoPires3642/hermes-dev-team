@@ -22,7 +22,7 @@
       {
         "capability": "shell",
         "match": [
-          "curl * https://api.tuple.hypesoft.com.br/trpc/*"
+          "tuple-api *"
         ],
         "effect": "allow"
       }

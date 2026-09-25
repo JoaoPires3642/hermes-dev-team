@@ -1,11 +1,14 @@
-# <Cliente> — contexto para o time de bots
+# <Projeto> — contexto para o time de bots
 
-> Copie esta pasta para `~/clientes/<cliente>/` e preencha. Este arquivo é lido
-> pelos bots e pelas sessões kiro-cli. **Nada de segredo aqui** (chaves e PATs
-> ficam no `.env` dos profiles / credential helper do git).
+> Copie esta pasta para `~/Documentos/<Projeto>/` e preencha. Este arquivo é lido
+> pelos bots e pelas sessões kiro-cli. **Nada de segredo aqui**: a chave do TUPLE
+> deste projeto fica em `.hermes/tuple.env` (chmod 600); credenciais git no
+> credential helper da máquina.
 
 ## Projeto
 - Nome / descrição curta:
+- Pasta do Granola:
+- Pasta de docs BMAD: `docs/`
 - Humanos no time (nome · papel · quem revisa):
 - Onde tirar dúvida técnica:
 
@@ -18,6 +21,7 @@
 | teamId | |
 | Prefixo das issues | |
 | assigneeId do João | |
+| Chave | `.hermes/tuple.env` (escopo neste projeto) |
 | Como marcar issue para os bots | (ex.: comentário `@bots` ou prioridade/coluna combinada) |
 
 ## Repositórios (em `repos/`)

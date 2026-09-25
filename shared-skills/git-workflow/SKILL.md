@@ -14,13 +14,13 @@ metadata:
 
 - Nada de credencial em arquivo. O git usa o credential helper da máquina
   (PAT do Azure DevOps / token do GitHub configurado pelo humano no host).
-- Fetch/push em Azure DevOps da Vertem exige a **VPN** ativa no host. Se falhar
-  por rede, `BLOCKED` com comentário — não tentar contornar.
+- Se o `AGENTS.md` do projeto disser que o remote exige **VPN**, ela precisa estar
+  ativa no host. Falhou por rede → `BLOCKED` com comentário, sem tentar contornar.
 
 ## Identidade
 
 - Branch base, branch de trabalho, alvo do PR e identidade (`user.name`/`user.email`)
-  de cada repo estão no `AGENTS.md` da pasta do cliente.
+  de cada repo estão no `AGENTS.md` da pasta do projeto (`~/Documentos/<Projeto>/`).
 - Configurar **no repo** (`git config user.name ...`), nunca `--global`.
 - Conferir `git config --local user.name` antes de commitar.
 

@@ -21,6 +21,15 @@ metadata:
 | @dev-front / @dev-back | implementam a story aprovada no repo, commit/push, PR, issue → IN_REVIEW | não mudam escopo; não fazem merge |
 | @qa | escreve/roda testes, revisa diff; falhou → devolve ao dev com evidência | não aprova merge |
 
+## Projetos
+
+Cada projeto é uma pasta **`~/Documentos/<Projeto>/`** (não é repo) com:
+`AGENTS.md` (contexto, IDs do TUPLE, repos, branches, restrições), `.hermes/tuple.env`
+(chave do TUPLE deste projeto), `.kiro/steering/`, a pasta de docs BMAD indicada no
+AGENTS.md e os repos clonados. Descobrir projetos: `ls ~/Documentos/*/AGENTS.md`.
+Sem `AGENTS.md` = não é projeto do time; não mexa. Trabalhe sempre com o caminho
+absoluto da pasta do projeto.
+
 ## Entradas
 
 1. **Call** — nota nova no Granola (MCP), pasta = cliente/projeto.

@@ -5,8 +5,8 @@
 #   ./install.sh                 # todos os bots
 #   ./install.sh dev-back qa     # só alguns
 #
-# Segredos: ~/.config/hermes-dev-team/secrets.env (fora do git, chmod 600)
-#   TUPLE_API_KEY=tpl_...
+# Segredos: nenhum aqui. A API key do TUPLE é POR PROJETO, em
+#   ~/Documentos/<Projeto>/.hermes/tuple.env  (chmod 600) — ver templates/projeto.
 
 set -euo pipefail
 
@@ -14,7 +14,6 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ALL_BOTS=(orquestrador po pm techlead dev-front dev-back qa)
 BOTS=("${@:-${ALL_BOTS[@]}}")
 HERMES_ROOT="${HERMES_HOME:-$HOME/.hermes}"
-SECRETS="${HERMES_DEV_TEAM_SECRETS:-$HOME/.config/hermes-dev-team/secrets.env}"
 BIN_DIR="$HOME/.local/bin"
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -43,24 +42,11 @@ if ! command -v kiro-cli >/dev/null; then
   warn "kiro-cli não encontrado — instale e rode 'kiro-cli login' antes de usar os bots"
 fi
 
-# ---------------------------------------------------------------- segredos
-if [[ ! -f "$SECRETS" ]]; then
-  mkdir -p "$(dirname "$SECRETS")"
-  printf 'TUPLE_API_KEY=\n' >"$SECRETS"
-  chmod 600 "$SECRETS"
-fi
-# shellcheck disable=SC1090
-source "$SECRETS"
-if [[ -z "${TUPLE_API_KEY:-}" && -t 0 ]]; then
-  read -rsp "TUPLE_API_KEY (fica só em $SECRETS): " TUPLE_API_KEY; echo
-  set_env "$SECRETS" TUPLE_API_KEY "$TUPLE_API_KEY"
-fi
-[[ -n "${TUPLE_API_KEY:-}" ]] || warn "TUPLE_API_KEY vazio em $SECRETS — bots não vão conseguir usar o TUPLE"
-
 # ---------------------------------------------------------------- kiro-pool + agentes Kiro
-say "Instalando kiro-pool em $BIN_DIR"
+say "Instalando kiro-pool e tuple-api em $BIN_DIR"
 mkdir -p "$BIN_DIR"
 install -m 755 "$REPO/bin/kiro-pool" "$BIN_DIR/kiro-pool"
+install -m 755 "$REPO/bin/tuple-api" "$BIN_DIR/tuple-api"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH";; esac
 
 say "Instalando agentes Kiro em ~/.kiro/agents"
@@ -95,8 +81,8 @@ for b in "${BOTS[@]}"; do
     cp -r "$s" "$prof/skills/$name"
   done
 
-  # .env do profile (segredo + como chamar o Kiro)
-  set_env "$prof/.env" TUPLE_API_KEY "${TUPLE_API_KEY:-}"
+  # .env do profile: só como chamar o Kiro (chave do TUPLE é por projeto)
+  [[ -f "$prof/.env" ]] && sed -i '/^TUPLE_API_KEY=/d' "$prof/.env"
   set_env "$prof/.env" HERMES_KIRO_ACP_COMMAND "$BIN_DIR/kiro-pool"
   set_env "$prof/.env" HERMES_KIRO_ACP_ARGS "acp --agent hermes-$b"
 
@@ -122,5 +108,6 @@ Próximos passos (uma vez por máquina):
   3. Hermes Desktop → Settings → Advanced → Warm Bot Backends = 7
   4. Telegram: hermes -p orquestrador gateway setup  (ver README)
   5. Routines no Desktop: @orquestrador (Granola + TUPLE) e @pm (diária)
-  6. Pasta de cliente: cp -r $REPO/templates/cliente ~/clientes/<cliente>
+  6. Projeto novo: cp -r $REPO/templates/projeto ~/Documentos/<Projeto>
+     preencher AGENTS.md, .kiro/steering/ e .hermes/tuple.env (chave DO projeto, chmod 600)
 EOF

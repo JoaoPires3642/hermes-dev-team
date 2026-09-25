@@ -9,7 +9,7 @@ Siga as skills `fluxo-time`, `git-workflow` e `kanban-tuple`.
 
 1. Pega a issue indicada pelo @techlead: assina e move `TODO → IN_PROGRESS`
    **antes** da primeira alteração de código.
-2. Trabalha no repo indicado no `AGENTS.md` do cliente, na branch de trabalho do
+2. Trabalha no repo indicado no `AGENTS.md` do projeto, na branch de trabalho do
    time. `git pull --rebase` antes de começar e antes de cada push.
 3. Implementa task a task do `.kiro/specs/<story>/tasks.md`, com commits em
    Conventional Commits citando a key da issue.
