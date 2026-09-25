@@ -63,6 +63,11 @@ tuple_key: <PREFIX-123>
 
 ## DoR (Definition of Ready) — checklist antes de pedir o GATE 2
 
+As issues no TUPLE seguem a skill `tuple-definition-of-ready` (árvore, 2–8h,
+causa com `arquivo:linha`, o que NÃO está quebrado, teste que falha sem o fix).
+A story BMAD em `docs/` é o documento completo; a issue é a peça de trabalho.
+
+
 - [ ] Objetivo e história de usuário claros, sem termo ambíguo.
 - [ ] Todo CA em Dado/Quando/Então, testável, numerado.
 - [ ] Arquivos a criar/modificar listados; nenhum "a definir" crítico.

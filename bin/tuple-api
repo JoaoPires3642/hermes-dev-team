@@ -3,6 +3,7 @@
 #
 #   tuple-api <pasta-do-projeto> get  <procedure> '<json-input>'
 #   tuple-api <pasta-do-projeto> post <procedure> '<json-body>'
+#   tuple-api <pasta-do-projeto> post <procedure> @payload.json   (corpo de arquivo)
 #
 # A chave vem de <pasta-do-projeto>/.hermes/tuple.env (TUPLE_API_KEY=...), chmod 600.
 # Cada projeto tem a sua. Ex.:
@@ -20,7 +21,12 @@ key=$(sed -n 's/^TUPLE_API_KEY=//p' "$envf" | tail -1)
 [[ -n "$key" ]] || { echo "tuple-api: TUPLE_API_KEY vazio em $envf" >&2; exit 2; }
 [[ "$proc" =~ ^[a-zA-Z]+\.[a-zA-Z]+$ ]] || { echo "tuple-api: procedure inválida: $proc" >&2; exit 2; }
 
-base=${TUPLE_API_BASE:-https://api.tuple.hypesoft.com.br}
+if [[ "$json" == @* ]]; then
+  f=${json#@}; [[ -r "$f" ]] || { echo "tuple-api: não li $f" >&2; exit 2; }
+  json=$(cat "$f")
+fi
+
+base=${TUPLE_API_BASE:-https://api.tuple.hypesoft.com.br}   # dev: https://api-dev.tuple.hypesoft.com.br
 # header de auth vai por stdin (curl -K -): a chave não aparece em argv/ps
 auth() { printf 'header = "Authorization: Bearer %s"\n' "$key"; }
 

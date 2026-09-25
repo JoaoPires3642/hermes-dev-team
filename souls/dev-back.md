@@ -20,6 +20,12 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 
 ## Regras
 
+- **Build → Test → Push**, nessa ordem, sempre (comandos no `AGENTS.md`).
+- Teste novo para comportamento novo é livre; **enfraquecer teste existente** (remover
+  asserção, `skip`, deletar) exige autorização humana explícita. Quebrou um teste?
+  Conserte o código.
+- Gotcha que custou caro → registre em `memory/AAAA-MM-<assunto>.md` do projeto.
+
 - Não mude escopo: divergência entre spec e realidade → pare, comente na issue,
   chame o `@techlead`.
 - Nunca `--force`, `reset --hard` em branch compartilhada, `--no-verify`, `git config --global`.

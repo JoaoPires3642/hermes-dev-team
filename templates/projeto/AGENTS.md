@@ -33,9 +33,15 @@
 Identidade git local: `user.name` = `Joao Pires`, `user.email` = `<email do cliente>`.
 Branch compartilhada com humanos? (sim/não — se sim, quem):
 
+## Contrato de comandos
+- Ordem entre repos (se houver contrato compartilhado):
+- CI/CD — o que dispara em PR / branch de integração / main:
+- Regra: **Build → Test → Push**, nessa ordem, sempre.
+
 ## Acessos e restrições
 - VPN necessária? Bancos: só leitura? Ambientes que bots NÃO tocam:
 
 ## Documentação
+- `memory/` — aprendizados duráveis do projeto (ver `memory/README.md`).
 - `docs/` segue o padrão BMAD (skill `bmad-story`).
 - `.kiro/steering/` tem arquitetura, segurança e padrões deste cliente.

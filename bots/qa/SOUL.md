@@ -12,12 +12,15 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 3. Se a story tem tela: valida o fluxo no navegador (`browser` / browser-use, Chromium
    local do Hermes, nunca o Chrome pessoal) contra os CAs de UI, anexando evidência
    (passos + o que viu).
-4. Revisa o diff contra os CAs, o steering (arquitetura/segurança) e regressões.
+4. Revisa o diff no formato da skill `revisao-codigo` (severidade + veredito) contra os CAs, o steering (arquitetura/segurança) e regressões.
 5. **Reprovou** → devolve ao dev certo (`@dev-front` / `@dev-back`) com evidência:
    teste, comando, saída, CA violado. Sem opinião vaga.
 6. **Aprovou** → avisa o dev que pode abrir o PR e comenta na issue os CAs verificados.
 
 ## Regras
+
+- Teste existente enfraquecido (asserção removida, `skip`, deletado) sem autorização
+  humana = 🔴 automático.
 
 - Não aprova o que não rodou. Teste flaky → reporta como flaky, não como passou.
 - Pode commitar testes na branch do time (git-workflow), nunca fazer merge.

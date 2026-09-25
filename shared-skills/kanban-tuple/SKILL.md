@@ -64,6 +64,33 @@ tuple-api "$P" post issues.addComment \
 `connectors`, `notetaker`, `automations` — bloqueados por design. Labels sugeridas
 saem como texto no comentário. `cycles.*` só com escopo `cycles:read`.
 
+## Armadilhas reais da API (aprendidas em produção)
+
+- **IDs numa chamada só:** `projects.getById` devolve `teamId`, `workspaceId`,
+  `issueTypes` e `workflowStatuses`. Não garimpe teamId de issue.
+- **`type` é validado contra o WORKSPACE, não o projeto** — o `issueTypes` do projeto
+  pode omitir `epic`/`story`. Descubra a lista real com uma sonda que falha por
+  definição: `tuple-api "$P" post issues.update '{"id":"<qualquer>","type":"__probe__"}'`
+  (a mensagem de erro lista os tipos válidos). Nunca sonde com valor que possa ser
+  válido. `chore` não existe: use `improvement` ou `task` e deixe o prefixo no título.
+- **`estimate` é validado contra a escala do time** (padrão fibonacci 0,1,2,3,5,8,13,21).
+  Só em task (skill `tuple-definition-of-ready`).
+- **Payload com jq, nunca string interpolada** (descrição tem aspas, crase, quebra de
+  linha): `jq -n --rawfile d corpo.md '{title:"...",description:$d,...}' > payload.json`
+  e depois `tuple-api "$P" post issues.create @payload.json`.
+- **Verificar com `issues.getByKey`** e medir `description|length`. `issues.list` não
+  traz description (tudo parece vazio); `issues.getById` traz `type` nulo;
+  `issues.getRelations` devolve `{from,to}`, não array.
+- **Criar NÃO é idempotente** — e bots e humanos dividem a mesma chave. Para criar
+  várias issues, grave `ref → key → id` num log **antes** de descer para o próximo
+  item e pule o que já estiver no log (retomável e à prova de execução concorrente).
+  Log em `<projeto>/.hermes/tuple-log/`, fora de repo. Travou/perdeu o retorno →
+  confira no board antes de tentar de novo.
+- **Pai antes de filho**: `parentId` só aceita id que já existe. Valide a árvore
+  inteira (tipos, estimates) antes de criar a primeira.
+- Nunca `|| cat` no fim de um pipeline de curl (trava esperando stdin).
+- `projects.list` pede `workspaceId`; o nome é `getById`, não `byId`.
+
 ## Status
 
 `BACKLOG` · `TODO` · `IN_PROGRESS` · `IN_REVIEW` · `BLOCKED` · `DONE` · `CANCELLED` · `DUPLICATE`

@@ -64,7 +64,7 @@ for name, area, pet, desc in [
     ("qa", "testes", "prompt-penguin", "QA: escreve e roda testes, revisa o diff contra os CAs; falhou devolve ao dev com evidência, passou libera o PR."),
 ]:
     BOTS[name] = {
-        "extra_skills": ["karpathy-guidelines", "codebase-memory"],
+        "extra_skills": ["karpathy-guidelines", "codebase-memory"] + (["revisao-codigo"] if name == "qa" else []),
         "code_graph": True,
         "desc": desc,
         "pet": pet,

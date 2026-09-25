@@ -30,6 +30,13 @@ AGENTS.md e os repos clonados. Descobrir projetos: `ls ~/Documentos/*/AGENTS.md`
 Sem `AGENTS.md` = não é projeto do time; não mexa. Trabalhe sempre com o caminho
 absoluto da pasta do projeto.
 
+### Memória do projeto (compartilhada)
+
+`<projeto>/memory/AAAA-MM-<assunto>.md` guarda o que **não** sai do código: por que
+decidimos X, o que já custou caro, o que ficou pendente. Todo bot lê antes de começar
+e registra quando aprende algo caro. Virou regra permanente → promova para
+`.kiro/steering/`. A memória de cada bot (Hermes) é pessoal; esta é do time.
+
 ## Entradas
 
 1. **Call** — nota nova no Granola (MCP), pasta = cliente/projeto.

@@ -66,13 +66,13 @@ Atualizar: `git pull && ./install.sh` (memórias e sessões dos bots ficam).
 bots/<bot>/          distribuição Hermes de cada bot (gerada — não editar à mão)
 souls/<bot>.md       personalidade/regras de cada bot (editar aqui)
 scripts/gen_bots.py  gera bots/ e kiro-agents/ (toolsets, pets, permissões)
-shared-skills/       fluxo-time · kanban-tuple · git-workflow · bmad-story (todos os bots)
-extra-skills/        karpathy-guidelines (MIT) + codebase-memory — só @techlead, @dev-*, @qa (+ resource/MCP nos agentes Kiro deles)
+shared-skills/       fluxo-time · kanban-tuple · tuple-definition-of-ready · git-workflow · bmad-story (todos os bots)
+extra-skills/        karpathy-guidelines (MIT) + codebase-memory — @techlead, @dev-*, @qa · revisao-codigo — @qa
 kiro-agents/         agentes Kiro por bot (~/.kiro/agents/hermes-<bot>.json)
 plugins/model-providers/kiro-acp/   provider Hermes → kiro-cli acp
 bin/kiro-pool        limita sessões kiro-cli simultâneas (padrão 4)
 bin/tuple-api        chama o TUPLE com a chave do projeto
-templates/projeto/   AGENTS.md, docs/, .kiro/steering/, .hermes/tuple.env.example de um projeto novo
+templates/projeto/   AGENTS.md, docs/, memory/, .kiro/steering/, .hermes/tuple.env.example de um projeto novo
 install.sh           instala/atualiza tudo nesta máquina
 ```
 
@@ -93,3 +93,9 @@ a chave do projeto sem expô-la. Credenciais git vêm do credential helper da m�
   `copilot-acp` do Hermes) e as regras `permissions` dos agentes Kiro — validar numa
   máquina com `kiro-cli` logado (`hermes -p dev-back chat` e mandar um "oi").
 - ⚠️ A API key do TUPLE de cada projeto precisa ter escopo naquele projeto (dá 403 fora dele).
+
+## Referências de padrão
+
+DoR, armadilhas da API do TUPLE, formato de revisão e `memory/` por projeto foram
+adaptados do `hypesoftlabs/tuple-workspace` (interno Hypesoft). O `tuple-runner-js`
+**não** é usado por enquanto.
