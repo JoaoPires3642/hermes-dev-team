@@ -20,6 +20,7 @@ platform_toolsets:
     - todo
     - file
     - terminal
+    - browser
   telegram:
     - clarify
     - memory
@@ -28,3 +29,8 @@ platform_toolsets:
     - todo
     - file
     - terminal
+    - browser
+
+browser:
+  backend: "browser-use"
+  cloud_provider: "local"

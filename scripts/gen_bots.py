@@ -68,7 +68,8 @@ for name, area, pet, desc in [
         "code_graph": True,
         "desc": desc,
         "pet": pet,
-        "toolsets": BASE_TOOLS + ["file", "terminal"],
+        "toolsets": BASE_TOOLS + ["file", "terminal"] + (["browser"] if name in ("dev-front", "qa") else []),
+        "browser": name in ("dev-front", "qa"),
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read", "write", "shell"],
         "kiro_rules": [{"capability": "shell", "match": DEV_DENY, "effect": "deny"}],
@@ -135,6 +136,14 @@ env_requires:
     default: "acp --agent hermes-{name}"
 """)
 
+    browser = ""
+    if b.get("browser"):
+        # browser-use (driver padrão do Hermes) no Chromium empacotado; nuvem desligada
+        browser = """
+browser:
+  backend: "browser-use"
+  cloud_provider: "local"
+"""
     mcp = ""
     if b.get("granola"):
         mcp = """
@@ -161,7 +170,7 @@ platform_toolsets:
 {yaml_list(b['toolsets'], 4)}
   telegram:
 {yaml_list(b['toolsets'], 4)}
-{mcp}""")
+{browser}{mcp}""")
 
     (d / ".gitignore").write_text(GITIGNORE)
 

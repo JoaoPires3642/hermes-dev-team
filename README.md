@@ -20,9 +20,12 @@ Arquitetura completa: [docs/arquitetura.md](docs/arquitetura.md).
 | @po | dor → user story, PRD/épicos | peri-the-owl | ler, escrever `docs/`, tuple-api |
 | @pm | prazo, cycles, impedimentos (routine diária) | capybara-lulu | ler + tuple-api |
 | @techlead | story BMAD + DoR, GATE 2, `.kiro/specs` | pipe-wrench-robot | ler, escrever `docs/` e `.kiro/`, git leitura, tuple-api |
-| @dev-front | implementa front, commit/push, PR | foxlynn | ler, escrever, shell (sem force/reset --hard/--no-verify) |
+| @dev-front | implementa front, confere a tela no navegador, commit/push, PR | foxlynn | ler, escrever, shell (sem force/reset --hard/--no-verify) |
 | @dev-back | implementa back, commit/push, PR | fat-robot | idem |
-| @qa | testes + revisão, devolve com evidência | prompt-penguin | idem |
+| @qa | testes + E2E no navegador + revisão, devolve com evidência | prompt-penguin | idem |
+
+@dev-front e @qa têm o toolset `browser` do Hermes (driver **browser-use**, Chromium
+empacotado do Hermes, `cloud_provider: local` — sem custo, nunca o Chrome pessoal).
 
 Cada turno de um bot é uma sessão `kiro-cli acp --agent hermes-<bot>`, passando
 pelo `kiro-pool` (no máximo 4 sessões ao mesmo tempo).
