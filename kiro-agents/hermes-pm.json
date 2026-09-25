@@ -14,9 +14,18 @@
       {
         "capability": "shell",
         "match": [
-          "tuple-api *"
+          "tuple-api *",
+          "hermes-task *"
         ],
         "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "hermes-task * --by humano*",
+          "hermes-task *--by=humano*"
+        ],
+        "effect": "deny"
       }
     ]
   }

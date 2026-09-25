@@ -31,9 +31,16 @@ base=${TUPLE_API_BASE:-https://api.tuple.hypesoft.com.br}   # dev: https://api-d
 auth() { printf 'header = "Authorization: Bearer %s"\n' "$key"; }
 
 case "$method" in
-  get)  auth | curl -sS --fail-with-body -K - -G "$base/trpc/$proc" --data-urlencode "input=$json" ;;
-  post) auth | curl -sS --fail-with-body -K - -X POST "$base/trpc/$proc" \
-          -H 'Content-Type: application/json' --data-binary "$json" ;;
+  get)  resp=$(auth | curl -sS -K - -w '\n%{http_code}' -G "$base/trpc/$proc" --data-urlencode "input=$json") ;;
+  post) resp=$(auth | curl -sS -K - -w '\n%{http_code}' -X POST "$base/trpc/$proc" \
+          -H 'Content-Type: application/json' --data-binary "$json") ;;
   *)    echo "tuple-api: método deve ser get ou post" >&2; exit 2 ;;
 esac
-echo
+code=${resp##*$'\n'}; body=${resp%$'\n'*}
+
+# auditoria do projeto: procedure + status, nunca o corpo nem a chave
+printf '{"ts":"%s","tipo":"tuple-api","metodo":"%s","procedure":"%s","http":%s,"bot":"%s"}\n' \
+  "$(date -Iseconds)" "$method" "$proc" "${code:-0}" "${HERMES_PROFILE:-?}" >>"$dir/.hermes/audit.jsonl" 2>/dev/null || true
+
+printf '%s\n' "$body"
+[[ "$code" =~ ^2 ]] || exit 22

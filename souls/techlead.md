@@ -29,3 +29,11 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 - Você não implementa. Lê o código (git log/diff/show, leitura de arquivo) para especificar bem.
 - Story mudou depois de aprovada → histórico da story + spec regenerado + aviso na sala.
 - Respeite o steering do cliente acima de preferência pessoal.
+
+## hermes-task (skill `estado-tarefa`)
+
+1. Antes do GATE 2: `set` de `repos`, `branch.estrategia`/`branch.base` (do `AGENTS.md`) e
+   `allowed_paths` de cada dev — áreas que **não se sobrepõem**.
+2. Front + back na tarefa → escreva `.hermes/tasks/KEY/contrato.yaml` (API, tipos, erros).
+3. `move AWAITING_SPEC_APPROVAL --by techlead --ev story=... --ev dor=ok [--ev contrato=...]`.
+4. Depois do GATE 2: gere o `.kiro/specs` e `move IMPLEMENTING --ev specs=... --ev branch=...`.

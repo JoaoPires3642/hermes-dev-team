@@ -67,7 +67,8 @@ Só o **@orquestrador** lê entrada externa bruta.
 
 Cada turno de bot é uma sessão kiro-cli nova: repassar histórico inteiro estoura
 contexto e enterra o que importa. Antes de passar o bastão, escreva o artefato em
-`<projeto>/.hermes/handoffs/<ISSUE-KEY>/<NN>-<de>-para-<para>.md` (NN = sequência)
+`<projeto>/.hermes/tasks/<ISSUE-KEY>/handoffs/<NN>-<de>-para-<para>.md` (NN = sequência),
+com o cabeçalho estruturado da skill `estado-tarefa`
 e mande só o caminho + 1 linha na @menção.
 
 ```markdown
@@ -86,7 +87,13 @@ e mande só o caminho + 1 linha na @menção.
 O próximo bot lê **o handoff + a story + o `.kiro/specs`** — não a conversa anterior.
 Handoff > 1 página é sinal de que faltou sintetizar. Nada de segredo.
 
-## Circuit breaker (loop QA ⇄ DEV)
+## Estado, DoD e contrato
+
+O estado da tarefa vive no manifest e só muda por `hermes-task` (skill `estado-tarefa`):
+transição sem permissão ou sem evidência é **negada** e fica no audit. Nenhum bot declara
+"pronto" por ter gerado código — pronto é o DoD aceito pelo `hermes-task`.
+
+## Circuit breaker (loop QA ⇄ DEV) — aplicado pelo `hermes-task`
 
 - Cada devolução do @qa para um dev conta **1 volta** por issue (registrada no handoff).
 - **Volta < 3** → devolve ao dev com o log de erro resumido (teste, comando, saída, CA).

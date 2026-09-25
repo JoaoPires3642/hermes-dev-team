@@ -26,7 +26,21 @@
           "git config --global*",
           "* --no-verify*",
           "rm -rf /*",
-          "rm -rf ~*"
+          "rm -rf ~*",
+          "git push * main",
+          "git push * master",
+          "git push *:main*",
+          "git push *:master*",
+          "kubectl *",
+          "helm *",
+          "terraform apply*",
+          "terraform destroy*",
+          "az pipelines run*",
+          "gh workflow run*",
+          "npm publish*",
+          "docker push*",
+          "hermes-task * --by humano*",
+          "hermes-task *--by=humano*"
         ],
         "effect": "deny"
       }

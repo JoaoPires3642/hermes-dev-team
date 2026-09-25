@@ -30,6 +30,8 @@
 | repos/<front> | | | | | | |
 | repos/<back> | | | | | | |
 
+**Estratégia de branch:** `por-tarefa` | `compartilhada`  ← escolha uma
+
 Identidade git local: `user.name` = `Joao Pires`, `user.email` = `<email do cliente>`.
 Branch compartilhada com humanos? (sim/não — se sim, quem):
 

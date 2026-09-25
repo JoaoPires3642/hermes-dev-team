@@ -18,7 +18,8 @@
         "capability": "fs_write",
         "match": [
           "docs/**",
-          ".kiro/**"
+          ".kiro/**",
+          ".hermes/tasks/**"
         ],
         "effect": "allow"
       },
@@ -26,12 +27,21 @@
         "capability": "shell",
         "match": [
           "tuple-api *",
+          "hermes-task *",
           "git log*",
           "git diff*",
           "git status*",
           "git show*"
         ],
         "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "hermes-task * --by humano*",
+          "hermes-task *--by=humano*"
+        ],
+        "effect": "deny"
       }
     ]
   },

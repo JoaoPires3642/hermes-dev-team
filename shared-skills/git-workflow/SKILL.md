@@ -24,6 +24,14 @@ metadata:
 - Configurar **no repo** (`git config user.name ...`), nunca `--global`.
 - Conferir `git config --local user.name` antes de commitar.
 
+## Estratégia de branch (campo do `AGENTS.md` de cada projeto)
+
+- **por-tarefa** → `feature/<KEY>-<slug>` a partir da branch base; front e back na mesma
+  branch da tarefa, cada um só nos seus `allowed_paths`; integra só por PR.
+- **compartilhada** → a branch do time, com as regras abaixo.
+
+Nos dois casos todo commit leva `Refs: <KEY>` no corpo (o `hermes-task` usa isso).
+
 ## Branch compartilhada com humanos
 
 A branch de trabalho pode ser a **mesma** de desenvolvedores humanos. Então:

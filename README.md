@@ -66,18 +66,33 @@ Atualizar: `git pull && ./install.sh` (memórias e sessões dos bots ficam).
 bots/<bot>/          distribuição Hermes de cada bot (gerada — não editar à mão)
 souls/<bot>.md       personalidade/regras de cada bot (editar aqui)
 scripts/gen_bots.py  gera bots/ e kiro-agents/ (toolsets, pets, permissões)
-shared-skills/       fluxo-time · kanban-tuple · tuple-definition-of-ready · git-workflow · bmad-story (todos os bots)
+shared-skills/       fluxo-time · estado-tarefa · kanban-tuple · tuple-definition-of-ready · git-workflow · bmad-story (todos)
 extra-skills/        karpathy-guidelines (MIT) + codebase-memory — @techlead, @dev-*, @qa · revisao-codigo — @qa
 kiro-agents/         agentes Kiro por bot (~/.kiro/agents/hermes-<bot>.json)
 plugins/model-providers/kiro-acp/   provider Hermes → kiro-cli acp
 bin/kiro-pool        limita sessões kiro-cli simultâneas (padrão 4)
-bin/tuple-api        chama o TUPLE com a chave do projeto
+bin/tuple-api        chama o TUPLE com a chave do projeto (+ audit)
+bin/hermes-task      manifest + máquina de estados + DoD + circuit breaker (regras em código)
 templates/projeto/   AGENTS.md, docs/, memory/, .kiro/steering/, .hermes/tuple.env.example de um projeto novo
 install.sh           instala/atualiza tudo nesta máquina
 ```
 
 Mudou SOUL, pet, ferramentas ou permissões? Edite `souls/` ou `scripts/gen_bots.py`,
 rode `python3 scripts/gen_bots.py`, commite e `./install.sh`.
+
+## Regras que ficam em código (não no prompt)
+
+| Regra | Onde é aplicada |
+|---|---|
+| estado da tarefa, quem move, evidência, DoD, circuit breaker (3 voltas), escopo travado após a spec | `hermes-task` |
+| arquivos só dentro de `allowed_paths` | `hermes-task` (confere no git antes do DoD) |
+| bot não finge aprovação humana, não faz deploy nem push em main/master, sem force | permissões dos agentes Kiro (`kiro-agents/`) |
+| ferramentas por bot | `platform_toolsets` do Hermes |
+| máx. 4 sessões Kiro | `kiro-pool` |
+| chave do TUPLE nunca exposta | `tuple-api` |
+
+Auditoria automática: `<projeto>/.hermes/audit.jsonl` (transições, negações, chamadas ao
+TUPLE) e `~/.hermes/dev-team-audit.jsonl` (sessões kiro-cli: bot, vaga, duração, saída).
 
 ## Segredos
 

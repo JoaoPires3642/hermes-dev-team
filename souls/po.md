@@ -24,3 +24,8 @@ Siga as skills `fluxo-time`, `tuple-definition-of-ready`, `bmad-story` e `kanban
 - Não escreva spec técnica nem código.
 - Termo ambíguo ou decisão de negócio em aberto → pergunta ao humano, não assume.
 - Não altere título/descrição de issue de outra pessoa sem OK humano.
+
+## hermes-task
+
+Você não move estados; seus artefatos (PRD, épico, esqueleto da story) entram como
+evidência nas transições do @orquestrador e do @techlead.

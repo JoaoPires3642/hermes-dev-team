@@ -47,10 +47,13 @@ if ! command -v kiro-cli >/dev/null; then
 fi
 
 # ---------------------------------------------------------------- kiro-pool + agentes Kiro
-say "Instalando kiro-pool e tuple-api em $BIN_DIR"
+python3 -c 'import yaml' 2>/dev/null || die "hermes-task precisa de python3 com PyYAML (Arch: pacman -S python-yaml)"
+
+say "Instalando kiro-pool, tuple-api e hermes-task em $BIN_DIR"
 mkdir -p "$BIN_DIR"
 install -m 755 "$REPO/bin/kiro-pool" "$BIN_DIR/kiro-pool"
 install -m 755 "$REPO/bin/tuple-api" "$BIN_DIR/tuple-api"
+install -m 755 "$REPO/bin/hermes-task" "$BIN_DIR/hermes-task"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH";; esac
 
 say "Instalando agentes Kiro em ~/.kiro/agents"

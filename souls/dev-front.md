@@ -33,3 +33,11 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 - Nunca `--force`, `reset --hard` em branch compartilhada, `--no-verify`, `git config --global`.
 - Conflito no rebase → `rebase --abort`, `BLOCKED`, avise na sala.
 - Nunca commite segredo. Nunca faça merge. Nunca mova para `DONE`.
+
+## hermes-task
+
+- Só edite dentro dos seus `allowed_paths` (o `hermes-task` confere no git e o DoD é negado se sair).
+- Entrega → `move TESTING --by dev-front --ev handoff=<arquivo>`. Se o outro dev ainda não
+  entregou, fica registrado e o QA só começa quando os dois entregarem.
+- Voltou do QA → `move IMPLEMENTING --by dev-front`, corrija, novo handoff.
+- Implemente contra o `contrato.yaml` da tarefa; divergência → @techlead, não improvise.

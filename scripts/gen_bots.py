@@ -9,6 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TUPLE_CURL = "tuple-api *"
+TASK = "hermes-task *"
+FINGIR_HUMANO = ["hermes-task * --by humano*", "hermes-task *--by=humano*"]
 
 BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 
@@ -18,9 +20,12 @@ BOTS = {
         "pet": "octopus",
         "toolsets": BASE_TOOLS + ["cronjob"],
         "granola": True,
-        "kiro_tools": ["read", "shell"],
+        "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
-        "kiro_rules": [{"capability": "shell", "match": [TUPLE_CURL], "effect": "allow"}],
+        "kiro_rules": [
+            {"capability": "fs_write", "match": [".hermes/tasks/**"], "effect": "allow"},
+            {"capability": "shell", "match": [TUPLE_CURL, TASK], "effect": "allow"},
+        ],
     },
     "po": {
         "desc": "Product Owner: transforma dores do cliente em user stories com critérios de aceite no padrão BMAD e mantém PRD/épicos em docs/.",
@@ -29,8 +34,8 @@ BOTS = {
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [
-            {"capability": "fs_write", "match": ["docs/**"], "effect": "allow"},
-            {"capability": "shell", "match": [TUPLE_CURL], "effect": "allow"},
+            {"capability": "fs_write", "match": ["docs/**", ".hermes/tasks/**"], "effect": "allow"},
+            {"capability": "shell", "match": [TUPLE_CURL, TASK], "effect": "allow"},
         ],
     },
     "pm": {
@@ -39,7 +44,7 @@ BOTS = {
         "toolsets": BASE_TOOLS + ["cronjob"],
         "kiro_tools": ["read", "shell"],
         "kiro_allowed": ["read"],
-        "kiro_rules": [{"capability": "shell", "match": [TUPLE_CURL], "effect": "allow"}],
+        "kiro_rules": [{"capability": "shell", "match": [TUPLE_CURL, TASK], "effect": "allow"}],
     },
     "techlead": {
         "extra_skills": ["karpathy-guidelines", "codebase-memory"],
@@ -50,14 +55,18 @@ BOTS = {
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [
-            {"capability": "fs_write", "match": ["docs/**", ".kiro/**"], "effect": "allow"},
-            {"capability": "shell", "match": [TUPLE_CURL, "git log*", "git diff*", "git status*", "git show*"], "effect": "allow"},
+            {"capability": "fs_write", "match": ["docs/**", ".kiro/**", ".hermes/tasks/**"], "effect": "allow"},
+            {"capability": "shell", "match": [TUPLE_CURL, TASK, "git log*", "git diff*", "git status*", "git show*"], "effect": "allow"},
         ],
     },
 }
 
 DEV_DENY = ["git push --force*", "git push -f*", "git push *--force*", "git reset --hard*",
-            "git config --global*", "* --no-verify*", "rm -rf /*", "rm -rf ~*"]
+            "git config --global*", "* --no-verify*", "rm -rf /*", "rm -rf ~*",
+            # push direto em branch principal e deploy: só humano
+            "git push * main", "git push * master", "git push *:main*", "git push *:master*",
+            "kubectl *", "helm *", "terraform apply*", "terraform destroy*", "az pipelines run*",
+            "gh workflow run*", "npm publish*", "docker push*"] + FINGIR_HUMANO
 for name, area, pet, desc in [
     ("dev-front", "front", "foxlynn", "Dev Front: implementa a story aprovada no repo de front numa sessão kiro-cli, commit/push na branch do time, abre PR e move a issue para IN_REVIEW."),
     ("dev-back", "back", "fat-robot", "Dev Back: implementa a story aprovada no repo de back numa sessão kiro-cli, commit/push na branch do time, abre PR e move a issue para IN_REVIEW."),
@@ -181,6 +190,9 @@ platform_toolsets:
     soul_src = ROOT / "souls" / f"{name}.md"
     (d / "SOUL.md").write_text(soul_src.read_text())
 
+    rules = list(b["kiro_rules"])
+    if name != "orquestrador" and not any(r["effect"] == "deny" for r in rules):
+        rules.append({"capability": "shell", "match": FINGIR_HUMANO, "effect": "deny"})
     agent = {
         "name": f"hermes-{name}",
         "description": f"Sessão kiro-cli do bot @{name} (Hermes). {b['desc']}",
@@ -190,7 +202,7 @@ platform_toolsets:
                   f"[bot @{name}].",
         "tools": b["kiro_tools"],
         "allowedTools": b["kiro_allowed"],
-        "permissions": {"rules": b["kiro_rules"]},
+        "permissions": {"rules": rules},
     }
     if b.get("code_graph"):
         # grafo do código (codebase-memory-mcp) — só nos bots que leem código

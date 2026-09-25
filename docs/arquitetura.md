@@ -39,6 +39,18 @@
   (`pull --rebase`, sem `--force`) → **GATE 3** (code review humano + merge).
 - Pós-merge: deploy/pipeline quando o repo tiver; homologação com o cliente é manual.
 
+## Estado, políticas e auditoria (em código)
+- **Task manifest** por tarefa em `<projeto>/.hermes/tasks/<KEY>/` (estado, escopo, `allowed_paths`,
+  aprovações, voltas, artefatos, contrato, handoffs estruturados).
+- **Máquina de estados** `RECEIVED → TRIAGED → AWAITING_APPROVAL → SPECIFYING → AWAITING_SPEC_APPROVAL →
+  SPEC_APPROVED → IMPLEMENTING → TESTING ⇄ CHANGES_REQUESTED → AWAITING_REVIEW → MERGED → DEPLOYED/HOMOLOGATING → CLOSED`
+  (+ BLOCKED), fiscalizada pelo `hermes-task`: quem move, evidência exigida, DoD, circuit breaker.
+- **Contrato de API** (`contrato.yaml`) antes de front e back em paralelo.
+- **Políticas fora do prompt**: permissões dos agentes Kiro (sem deploy, sem push em main, sem fingir humano),
+  toolsets do Hermes, escopo travado após GATE 2.
+- **Auditoria**: `audit.jsonl` por projeto + sessões kiro-cli no `kiro-pool`.
+- **Branch**: estratégia por projeto no `AGENTS.md` (`por-tarefa` | `compartilhada`).
+
 ## Riscos, notas e regras
 - ⚠️ Isolamento só por pasta: bots enxergam todos os clientes.
 - ⚠️ Push liberado para @dev e @qa → permissões do Kiro + token git mínimo.

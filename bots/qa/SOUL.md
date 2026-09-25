@@ -26,3 +26,10 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 
 - Não aprova o que não rodou. Teste flaky → reporta como flaky, não como passou.
 - Pode commitar testes na branch do time (git-workflow), nunca fazer merge.
+
+## hermes-task
+
+- Reprovou → `move CHANGES_REQUESTED --by qa --ev relatorio=<arq> --ev para=dev-x`.
+  **Saída 3 = circuit breaker disparou**: pare, alerte no Telegram, não reabra.
+- Aprovou → `move AWAITING_REVIEW` com o **DoD completo** (skill `estado-tarefa`). Só
+  escreva `ok` para o que você rodou e viu passar — fica no audit com o seu nome.

@@ -18,3 +18,9 @@ Siga as skills `fluxo-time` e `kanban-tuple`.
 
 - Não altera escopo, prioridade ou dono de issue sem OK humano.
 - Sem ruído: só avisa quando muda algo ou quando há bloqueio.
+
+## hermes-task
+
+No resumo diário use os manifests (`.hermes/tasks/*/manifest.yaml`) e o
+`.hermes/audit.jsonl`: tarefas `BLOCKED` (motivo), paradas no mesmo estado há mais de
+2 dias, e transições **negadas** repetidas (sinal de bot insistindo em algo errado).

@@ -1,0 +1,386 @@
+#!/usr/bin/env python3
+"""hermes-task — manifest + máquina de estados da tarefa (a regra fica no código, não no prompt).
+
+  hermes-task new   <projeto> <KEY> --objetivo TXT --agentes dev-back[,dev-front] [--ui]
+  hermes-task show  <projeto> <KEY>
+  hermes-task set   <projeto> <KEY> campo=valor ... --by <ator>
+  hermes-task move  <projeto> <KEY> <ESTADO> --by <ator> [--ev chave=valor ...]
+  hermes-task check-paths <projeto> <KEY> [--agente dev-back]
+  hermes-task states
+
+Manifest:  <projeto>/.hermes/tasks/<KEY>/manifest.yaml
+Auditoria: <projeto>/.hermes/audit.jsonl  (uma linha JSON por transição, tentativa negada inclusive)
+
+Códigos de saída: 0 ok · 1 negado/erro · 2 uso · 3 circuit breaker disparou (alertar humano)
+"""
+import argparse
+import datetime as dt
+import fcntl
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path, PurePosixPath
+
+import yaml
+
+BOTS = {"orquestrador", "po", "pm", "techlead", "dev-front", "dev-back", "qa"}
+DEVS = {"dev-front", "dev-back"}
+ATORES = BOTS | {"humano"}
+
+ESTADOS = [
+    "RECEIVED", "TRIAGED", "AWAITING_APPROVAL", "SPECIFYING", "AWAITING_SPEC_APPROVAL",
+    "SPEC_APPROVED", "IMPLEMENTING", "TESTING", "CHANGES_REQUESTED", "AWAITING_REVIEW",
+    "MERGED", "DEPLOYED", "HOMOLOGATING", "CLOSED", "BLOCKED",
+]
+
+# status do TUPLE que acompanha cada estado (o bot move no TUPLE via tuple-api)
+TUPLE_STATUS = {
+    "RECEIVED": "BACKLOG", "TRIAGED": "BACKLOG", "AWAITING_APPROVAL": "BACKLOG",
+    "SPECIFYING": "TODO", "AWAITING_SPEC_APPROVAL": "TODO", "SPEC_APPROVED": "TODO",
+    "IMPLEMENTING": "IN_PROGRESS", "TESTING": "IN_PROGRESS", "CHANGES_REQUESTED": "IN_PROGRESS",
+    "AWAITING_REVIEW": "IN_REVIEW", "MERGED": "IN_REVIEW", "DEPLOYED": "IN_REVIEW",
+    "HOMOLOGATING": "IN_REVIEW", "CLOSED": "DONE", "BLOCKED": "BLOCKED",
+}
+
+# evidência: "arquivo" = caminho que precisa existir · "ok" = precisa ser ok · "texto" = não vazio
+DOD = {
+    "build": "ok", "lint_typecheck": "ok", "testes": "ok", "integracao": "ok|na",
+    "seguranca": "ok", "ca": "ok", "revisao": "arquivo", "pr": "texto", "tuple": "ok",
+}
+
+H = {"humano"}
+FINAIS = {"MERGED", "DEPLOYED", "HOMOLOGATING"}
+TRANSICOES = {
+    ("RECEIVED", "TRIAGED"): ({"orquestrador"}, {"resumo": "arquivo"}),
+    ("TRIAGED", "AWAITING_APPROVAL"): ({"orquestrador"}, {"proposta": "arquivo"}),
+    ("AWAITING_APPROVAL", "SPECIFYING"): (H, {"issues": "texto", "via": "texto"}),        # GATE 1
+    ("AWAITING_APPROVAL", "CLOSED"): (H, {"motivo": "texto"}),
+    ("SPECIFYING", "AWAITING_SPEC_APPROVAL"): ({"techlead"}, {"story": "arquivo", "dor": "ok"}),
+    ("AWAITING_SPEC_APPROVAL", "SPEC_APPROVED"): (H, {"via": "texto"}),                  # GATE 2
+    ("AWAITING_SPEC_APPROVAL", "SPECIFYING"): (H, {"motivo": "texto"}),
+    ("SPEC_APPROVED", "IMPLEMENTING"): ({"techlead"}, {"specs": "arquivo", "branch": "texto"}),
+    ("IMPLEMENTING", "TESTING"): (DEVS, {"handoff": "arquivo"}),
+    ("TESTING", "CHANGES_REQUESTED"): ({"qa"}, {"relatorio": "arquivo", "para": "texto"}),
+    ("CHANGES_REQUESTED", "IMPLEMENTING"): (DEVS, {}),
+    ("TESTING", "AWAITING_REVIEW"): ({"qa"}, DOD),
+    ("AWAITING_REVIEW", "MERGED"): (H, {"via": "texto"}),                                 # GATE 3
+    ("AWAITING_REVIEW", "CHANGES_REQUESTED"): (H, {"motivo": "texto", "para": "texto"}),
+    ("MERGED", "DEPLOYED"): (H, {"deploy": "texto"}),
+    ("MERGED", "HOMOLOGATING"): (H, {}),
+    ("DEPLOYED", "HOMOLOGATING"): (H, {}),
+    **{(e, "CLOSED"): (H, {}) for e in FINAIS},
+}
+
+
+def agora():
+    return dt.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def die(msg, code=1):
+    print(f"hermes-task: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def projeto(p):
+    root = Path(p).expanduser().resolve()
+    if not (root / "AGENTS.md").is_file():
+        die(f"{root} não é pasta de projeto (sem AGENTS.md)", 2)
+    return root
+
+
+def paths(root, key):
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", key):
+        die(f"KEY inválida: {key}", 2)
+    d = root / ".hermes" / "tasks" / key
+    return d, d / "manifest.yaml"
+
+
+def audit(root, **ev):
+    (root / ".hermes").mkdir(exist_ok=True)
+    with open(root / ".hermes" / "audit.jsonl", "a") as f:
+        f.write(json.dumps({"ts": agora(), **ev}, ensure_ascii=False) + "\n")
+
+
+def load(mf):
+    if not mf.is_file():
+        die(f"tarefa não existe: {mf}")
+    return yaml.safe_load(mf.read_text())
+
+
+def save(mf, m):
+    mf.write_text(yaml.safe_dump(m, allow_unicode=True, sort_keys=False))
+
+
+def parse_ev(pairs):
+    ev = {}
+    for p in pairs or []:
+        if "=" not in p:
+            die(f"evidência deve ser chave=valor: {p}", 2)
+        k, v = p.split("=", 1)
+        ev[k.strip()] = v.strip()
+    return ev
+
+
+def checa_ev(root, exig, ev):
+    faltas = []
+    for k, tipo in exig.items():
+        v = ev.get(k, "")
+        if tipo == "arquivo":
+            if not v or not (root / v).expanduser().exists() and not Path(v).expanduser().exists():
+                faltas.append(f"{k} (arquivo que exista)")
+        elif tipo == "texto":
+            if not v:
+                faltas.append(k)
+        else:  # "ok" ou "ok|na"
+            if v not in tipo.split("|"):
+                faltas.append(f"{k}={tipo}")
+    return faltas
+
+
+def arquivos_da_tarefa(root, m):
+    """Mudança LÍQUIDA da tarefa: arquivos tocados por commits que citam a KEY e que ainda
+    diferem de antes do 1º desses commits, + mudanças não commitadas."""
+    out = set()
+    for r in m.get("repos") or []:
+        repo = root / r["path"]
+        if not (repo / ".git").exists():
+            continue
+        g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout
+        grep = f"--grep={m['task_id']}"
+        tocados = {l for l in g("log", "-n", "500", grep, "--name-only", "--format=").splitlines() if l.strip()}
+        shas = g("log", "-n", "500", grep, "--format=%H").split()
+        if tocados and shas:
+            antes = g("rev-parse", "--verify", "-q", shas[-1] + "^").strip() or "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            liquido = set(g("diff", "--name-only", antes, "HEAD", "--", *sorted(tocados)).split())
+        else:
+            liquido = set()
+        st = g("status", "--porcelain")
+        liquido |= {l[3:].split(" -> ")[-1] for l in st.splitlines() if len(l) > 3}
+        out |= {str(PurePosixPath(r["path"]) / f) for f in liquido}
+    return sorted(out)
+
+
+def fora_do_escopo(root, m, agente=None):
+    ap = m.get("allowed_paths") or {}
+    globs = ap.get(agente, []) if agente else [g for v in ap.values() for g in v]
+    if not globs:
+        return None  # sem escopo definido
+    ruins = []
+    for f in arquivos_da_tarefa(root, m):
+        if not any(PurePosixPath(f).full_match(g) for g in globs):
+            ruins.append(f)
+    return ruins
+
+
+def cmd_new(a):
+    root = projeto(a.projeto)
+    d, mf = paths(root, a.key)
+    if mf.exists():
+        die(f"tarefa já existe: {mf}")
+    agentes = [x.strip() for x in a.agentes.split(",") if x.strip()]
+    if not set(agentes) <= BOTS:
+        die(f"agentes inválidos: {agentes}", 2)
+    (d / "handoffs").mkdir(parents=True)
+    m = {
+        "task_id": a.key, "objetivo": a.objetivo, "estado": "RECEIVED", "estado_anterior": None,
+        "escopo": {"incluido": [], "excluido": []}, "criterios_aceite": [], "restricoes_tecnicas": [],
+        "agentes": agentes, "tem_ui": a.ui, "risco": "medio",
+        "branch": {"estrategia": None, "nome": None, "base": None},
+        "repos": [], "allowed_paths": {x: [] for x in agentes if x in DEVS},
+        "aprovacoes": {"gate1": None, "gate2": None, "gate3": None},
+        "voltas_qa": 0, "max_voltas": 3, "handoffs_dev": [],
+        "artefatos": {"resumo": None, "proposta": None, "story": None, "contrato": None, "specs": None,
+                      "relatorio_testes": None, "revisao": None, "pr": None, "screenshots": []},
+        "historico": [{"em": agora(), "para": "RECEIVED", "por": "orquestrador"}],
+    }
+    save(mf, m)
+    audit(root, tipo="new", task=a.key, agentes=agentes)
+    print(mf)
+
+
+def cmd_show(a):
+    root = projeto(a.projeto)
+    _, mf = paths(root, a.key)
+    print(mf.read_text() if mf.exists() else die(f"tarefa não existe: {mf}"))
+
+
+TRAVADOS_APOS_SPEC = {"agentes", "allowed_paths", "escopo", "criterios_aceite", "tem_ui"}
+ABERTOS = {"RECEIVED", "TRIAGED", "AWAITING_APPROVAL", "SPECIFYING"}
+CAMPOS_SET = {"objetivo", "tem_ui", "risco", "agentes", "repos", "criterios_aceite", "restricoes_tecnicas",
+              "escopo", "branch", "allowed_paths", "artefatos"}
+
+
+def cmd_set(a):
+    root = projeto(a.projeto)
+    _, mf = paths(root, a.key)
+    with open(mf, "r+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        m = load(mf)
+        for kv in a.pares:
+            k, _, v = kv.partition("=")
+            topo = k.split(".")[0]
+            if topo not in CAMPOS_SET:
+                die(f"campo não editável por set: {topo} (estado/aprovações só via move)", 2)
+            if topo in TRAVADOS_APOS_SPEC and m["estado"] not in ABERTOS and a.by.lstrip("@") != "humano":
+                audit(root, tipo="negado", task=a.key, por=a.by, motivo=f"set {topo} após spec aprovada")
+                die(f"NEGADO: {topo} fica travado depois da spec (estado {m['estado']}); só humano muda")
+            try:
+                val = yaml.safe_load(v)
+            except yaml.YAMLError:
+                val = v
+            alvo, partes = m, k.split(".")
+            for p in partes[:-1]:
+                alvo = alvo.setdefault(p, {})
+            alvo[partes[-1]] = val
+        save(mf, m)
+    audit(root, tipo="set", task=a.key, por=a.by, campos=[p.split("=")[0] for p in a.pares])
+    print("ok")
+
+
+def cmd_move(a):
+    root = projeto(a.projeto)
+    _, mf = paths(root, a.key)
+    por, para = a.by.lstrip("@"), a.estado.upper()
+    ev = parse_ev(a.ev)
+    if por not in ATORES:
+        die(f"ator desconhecido: {por}", 2)
+    if para not in ESTADOS:
+        die(f"estado desconhecido: {para} (veja: hermes-task states)", 2)
+
+    with open(mf, "r+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        m = load(mf)
+        de = m["estado"]
+
+        def negar(motivo):
+            audit(root, tipo="negado", task=a.key, de=de, para=para, por=por, motivo=motivo)
+            die(f"NEGADO {de} → {para} por @{por}: {motivo}")
+
+        # BLOCKED: qualquer ator entra; só humano sai (volta ao estado anterior)
+        if para == "BLOCKED":
+            if not ev.get("motivo"):
+                negar("BLOCKED exige --ev motivo=...")
+            m["estado_anterior"], m["estado"] = de, "BLOCKED"
+        elif de == "BLOCKED":
+            if por != "humano":
+                negar("só humano tira uma tarefa de BLOCKED")
+            if para != m.get("estado_anterior") and para != "CLOSED":
+                negar(f"sai de BLOCKED para o estado anterior ({m.get('estado_anterior')}) ou CLOSED")
+            if ev.get("reset_voltas") == "sim":
+                m["voltas_qa"] = 0
+            m["estado"], m["estado_anterior"] = para, None
+        else:
+            regra = TRANSICOES.get((de, para))
+            if not regra:
+                negar(f"transição não existe a partir de {de}")
+            quem, exig = regra
+            if por not in quem:
+                negar(f"quem pode: {', '.join(sorted(quem))}")
+            exig = dict(exig)
+            if (de, para) == ("SPECIFYING", "AWAITING_SPEC_APPROVAL"):
+                if DEVS <= set(m["agentes"]):
+                    exig["contrato"] = "arquivo"  # front e back em paralelo: contrato antes
+                sem_escopo = [d for d in m["agentes"] if d in DEVS and not (m.get("allowed_paths") or {}).get(d)]
+                if sem_escopo:
+                    negar(f"defina allowed_paths para: {', '.join(sem_escopo)}")
+            if (de, para) == ("TESTING", "AWAITING_REVIEW") and m.get("tem_ui"):
+                exig["evidencia_visual"] = "arquivo"
+            faltas = checa_ev(root, exig, ev)
+            if faltas:
+                negar("faltou evidência: " + ", ".join(faltas))
+
+            if (de, para) == ("IMPLEMENTING", "TESTING"):
+                feitos = set(m.get("handoffs_dev") or []) | {por}
+                m["handoffs_dev"] = sorted(feitos)
+                faltam = [d for d in m["agentes"] if d in DEVS and d not in feitos]
+                if faltam:
+                    m["historico"].append({"em": agora(), "handoff": por, "evidencias": ev})
+                    save(mf, m)
+                    audit(root, tipo="handoff", task=a.key, por=por, aguardando=faltam)
+                    print(f"handoff de @{por} registrado; TESTING só depois de: {', '.join(faltam)}")
+                    return
+            if (de, para) == ("TESTING", "AWAITING_REVIEW"):
+                ruins = fora_do_escopo(root, m)
+                if ruins:
+                    negar("arquivos fora de allowed_paths: " + ", ".join(ruins[:10]))
+            m["estado"] = para
+
+            if para == "CHANGES_REQUESTED":
+                alvo = ev.get("para", "").lstrip("@")
+                m["handoffs_dev"] = [d for d in m.get("handoffs_dev") or [] if d != alvo]
+                if por == "qa":
+                    m["voltas_qa"] = int(m.get("voltas_qa") or 0) + 1
+            gates = {("AWAITING_APPROVAL", "SPECIFYING"): "gate1",
+                     ("AWAITING_SPEC_APPROVAL", "SPEC_APPROVED"): "gate2",
+                     ("AWAITING_REVIEW", "MERGED"): "gate3"}
+            if (de, para) in gates:
+                m["aprovacoes"][gates[(de, para)]] = {"em": agora(), "via": ev.get("via")}
+            for k in ("resumo", "proposta", "story", "contrato", "specs", "revisao", "pr"):
+                if k in ev:
+                    m["artefatos"][k] = ev[k]
+            if "relatorio" in ev:
+                m["artefatos"]["relatorio_testes"] = ev["relatorio"]
+            if "branch" in ev:
+                m["branch"]["nome"] = ev["branch"]
+
+        m["historico"].append({"em": agora(), "de": de, "para": m["estado"], "por": por, "evidencias": ev})
+
+        disparou = False
+        if m["estado"] == "CHANGES_REQUESTED" and por == "qa" and m["voltas_qa"] >= m.get("max_voltas", 3):
+            m["estado_anterior"], m["estado"], disparou = "CHANGES_REQUESTED", "BLOCKED", True
+            m["historico"].append({"em": agora(), "de": "CHANGES_REQUESTED", "para": "BLOCKED",
+                                   "por": "circuit-breaker", "evidencias": {"voltas_qa": m["voltas_qa"]}})
+        save(mf, m)
+
+    audit(root, tipo="transicao", task=a.key, de=de, para=m["estado"], por=por, evidencias=ev,
+          circuit_breaker=disparou or None)
+    print(f"{de} → {m['estado']}  ·  TUPLE: mova para {TUPLE_STATUS[m['estado']]}")
+    if disparou:
+        print(f"CIRCUIT BREAKER: {m['voltas_qa']} voltas QA⇄DEV. Tarefa BLOCKED — alerte o humano "
+              "no Telegram com o histórico e não reabra o loop.", file=sys.stderr)
+        sys.exit(3)
+
+
+def cmd_check(a):
+    root = projeto(a.projeto)
+    _, mf = paths(root, a.key)
+    m = load(mf)
+    ruins = fora_do_escopo(root, m, a.agente)
+    if ruins is None:
+        die("allowed_paths vazio para esse filtro")
+    if ruins:
+        print("fora do escopo:\n  " + "\n  ".join(ruins))
+        sys.exit(1)
+    print("ok: todos os arquivos dentro de allowed_paths")
+
+
+def cmd_states(_):
+    print("Estados:", " → ".join(ESTADOS[:-1]), "· BLOCKED (qualquer ator entra; só humano sai)\n")
+    for (de, para), (quem, exig) in TRANSICOES.items():
+        print(f"{de:24} → {para:24} por {','.join(sorted(quem)):28} evidência: {', '.join(exig) or '—'}")
+    print("\nSPECIFYING→AWAITING_SPEC_APPROVAL também exige contrato (se front+back) e allowed_paths de cada dev.")
+    print("TESTING→AWAITING_REVIEW (DoD) também exige evidencia_visual se tem_ui, e confere allowed_paths no git.")
+    print("IMPLEMENTING→TESTING só avança quando todos os devs da tarefa entregaram handoff.")
+
+
+def main():
+    p = argparse.ArgumentParser(prog="hermes-task", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    s = p.add_subparsers(dest="cmd", required=True)
+    n = s.add_parser("new"); n.add_argument("projeto"); n.add_argument("key")
+    n.add_argument("--objetivo", required=True); n.add_argument("--agentes", required=True)
+    n.add_argument("--ui", action="store_true"); n.set_defaults(f=cmd_new)
+    x = s.add_parser("show"); x.add_argument("projeto"); x.add_argument("key"); x.set_defaults(f=cmd_show)
+    x = s.add_parser("set"); x.add_argument("projeto"); x.add_argument("key"); x.add_argument("pares", nargs="+")
+    x.add_argument("--by", required=True); x.set_defaults(f=cmd_set)
+    x = s.add_parser("move"); x.add_argument("projeto"); x.add_argument("key"); x.add_argument("estado")
+    x.add_argument("--by", required=True); x.add_argument("--ev", action="append"); x.set_defaults(f=cmd_move)
+    x = s.add_parser("check-paths"); x.add_argument("projeto"); x.add_argument("key"); x.add_argument("--agente")
+    x.set_defaults(f=cmd_check)
+    x = s.add_parser("states"); x.set_defaults(f=cmd_states)
+    a = p.parse_args()
+    a.f(a)
+
+
+if __name__ == "__main__":
+    main()
