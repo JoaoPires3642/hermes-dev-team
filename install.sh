@@ -51,8 +51,13 @@ case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH";; esa
 
 say "Instalando agentes Kiro em ~/.kiro/agents"
 mkdir -p "$HOME/.kiro/agents"
+mkdir -p "$HOME/.kiro/hermes-dev-team"
+for s in "$REPO"/extra-skills/*/; do
+  install -m 644 "$s/SKILL.md" "$HOME/.kiro/hermes-dev-team/$(basename "$s").md"
+done
 for b in "${BOTS[@]}"; do
-  install -m 644 "$REPO/kiro-agents/hermes-$b.json" "$HOME/.kiro/agents/hermes-$b.json"
+  sed "s#__HOME__#$HOME#g" "$REPO/kiro-agents/hermes-$b.json" >"$HOME/.kiro/agents/hermes-$b.json"
+  chmod 644 "$HOME/.kiro/agents/hermes-$b.json"
 done
 
 # ---------------------------------------------------------------- bots
@@ -80,6 +85,12 @@ for b in "${BOTS[@]}"; do
     rm -rf "$prof/skills/$name"
     cp -r "$s" "$prof/skills/$name"
   done
+
+  # skills só deste bot (extra-skills.txt)
+  while read -r x; do
+    [[ -n "$x" ]] || continue
+    rm -rf "$prof/skills/$x"; cp -r "$REPO/extra-skills/$x" "$prof/skills/$x"
+  done <"$src/extra-skills.txt"
 
   # .env do profile: só como chamar o Kiro (chave do TUPLE é por projeto)
   [[ -f "$prof/.env" ]] && sed -i '/^TUPLE_API_KEY=/d' "$prof/.env"

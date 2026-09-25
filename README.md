@@ -61,7 +61,8 @@ Atualizar: `git pull && ./install.sh` (memórias e sessões dos bots ficam).
 bots/<bot>/          distribuição Hermes de cada bot (gerada — não editar à mão)
 souls/<bot>.md       personalidade/regras de cada bot (editar aqui)
 scripts/gen_bots.py  gera bots/ e kiro-agents/ (toolsets, pets, permissões)
-shared-skills/       fluxo-time · kanban-tuple · git-workflow · bmad-story
+shared-skills/       fluxo-time · kanban-tuple · git-workflow · bmad-story (todos os bots)
+extra-skills/        karpathy-guidelines (MIT) — só @techlead, @dev-*, @qa + resource dos agentes Kiro deles
 kiro-agents/         agentes Kiro por bot (~/.kiro/agents/hermes-<bot>.json)
 plugins/model-providers/kiro-acp/   provider Hermes → kiro-cli acp
 bin/kiro-pool        limita sessões kiro-cli simultâneas (padrão 4)

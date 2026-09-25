@@ -29,5 +29,8 @@
         "effect": "deny"
       }
     ]
-  }
+  },
+  "resources": [
+    "file://__HOME__/.kiro/hermes-dev-team/karpathy-guidelines.md"
+  ]
 }

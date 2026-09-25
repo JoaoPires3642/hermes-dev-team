@@ -42,6 +42,7 @@ BOTS = {
         "kiro_rules": [{"capability": "shell", "match": [TUPLE_CURL], "effect": "allow"}],
     },
     "techlead": {
+        "extra_skills": ["karpathy-guidelines"],
         "desc": "Tech Lead: escreve a story BMAD técnica com DoR, quebra em tasks no TUPLE, pede o GATE 2 e gera o .kiro/specs para os devs.",
         "pet": "pipe-wrench-robot",
         "toolsets": BASE_TOOLS + ["file"],
@@ -62,6 +63,7 @@ for name, area, pet, desc in [
     ("qa", "testes", "prompt-penguin", "QA: escreve e roda testes, revisa o diff contra os CAs; falhou devolve ao dev com evidência, passou libera o PR."),
 ]:
     BOTS[name] = {
+        "extra_skills": ["karpathy-guidelines"],
         "desc": desc,
         "pet": pet,
         "toolsets": BASE_TOOLS + ["file", "terminal"],
@@ -161,6 +163,10 @@ platform_toolsets:
 
     (d / ".gitignore").write_text(GITIGNORE)
 
+    # skills só deste bot (além das shared-skills que todos recebem)
+    extra = b.get("extra_skills", [])
+    (d / "extra-skills.txt").write_text("".join(f"{x}\n" for x in extra))
+
     soul_src = ROOT / "souls" / f"{name}.md"
     (d / "SOUL.md").write_text(soul_src.read_text())
 
@@ -175,6 +181,9 @@ platform_toolsets:
         "allowedTools": b["kiro_allowed"],
         "permissions": {"rules": b["kiro_rules"]},
     }
+    if extra:
+        # __HOME__ é trocado pelo install.sh; os arquivos vão para ~/.kiro/hermes-dev-team/
+        agent["resources"] = [f"file://__HOME__/.kiro/hermes-dev-team/{x}.md" for x in extra]
     (ROOT / "kiro-agents" / f"hermes-{name}.json").write_text(json.dumps(agent, ensure_ascii=False, indent=2) + "\n")
 
 print("ok:", ", ".join(BOTS))
