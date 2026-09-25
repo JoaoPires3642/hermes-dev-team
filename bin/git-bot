@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+"""git-bot — as operações git do time, com as regras em código em vez de prosa.
+
+Existe por dois motivos:
+
+1. **Determinismo.** "nunca --force", "pull --rebase antes de todo push" e "sem
+   --no-verify" eram texto na skill `git-workflow`: valiam se o modelo resolvesse
+   obedecer. Aqui são código. Isso importa porque as `permissions` dos agentes Kiro
+   só são aplicadas na engine v3, e o `acp` não aceita v3 junto com `--agent`.
+2. **Tokens.** Um `push` seguro é fetch + pull --rebase + checar conflito + push.
+   Em prosa são 4 a 6 tool calls e o raciocínio da sequência a cada vez; aqui é uma.
+
+  git-bot estado   <repo>
+  git-bot preparar <repo> --key KEY --slug SLUG --estrategia por-tarefa|compartilhada
+                          --base BRANCH [--branch BRANCH] --nome NOME --email EMAIL
+  git-bot commit   <repo> --key KEY --tipo feat --desc "texto" [--escopo api] [--bot dev-back]
+  git-bot push     <repo>
+
+Saída: 0 ok · 1 erro · 2 uso/falta informação · 3 BLOCKED (só humano destrava)
+
+O que ele se recusa a fazer, sempre: --force, --force-with-lease, --no-verify,
+--no-gpg-sign, reset --hard, git config --global, push em main/master, e commitar
+arquivo que pareça segredo. Não há flag para desligar isso — é o ponto.
+"""
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+TIPOS = ("feat", "fix", "chore", "docs", "refactor", "perf", "test",
+         "build", "ci", "style", "revert")
+BRANCHES_PROIBIDAS = ("main", "master")
+# nome de arquivo que não entra em commit de bot
+SEGREDOS = re.compile(
+    r"(^|/)\.env(\.|$)|\.pem$|\.p12$|\.pfx$|(^|/)id_rsa|(^|/)\.npmrc$|"
+    r"(^|/)\.netrc$|secrets?\.(ya?ml|json)$|credentials?\.(ya?ml|json)$", re.I)
+PERIGO = re.compile(r"--force|--no-verify|--no-gpg-sign|--hard|\s-f(\s|$)", re.I)
+
+OK, ERRO, USO, BLOCKED = 0, 1, 2, 3
+
+# stdout do Windows é cp1252 por padrão e engasga em emoji: o script morreria ao
+# imprimir, não ao fazer git. O shell dos bots lê esta saída, então ela tem que sair.
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
+
+def fim(codigo, msg):
+    cor = {OK: "1;32", ERRO: "1;31", USO: "1;33", BLOCKED: "1;35"}[codigo]
+    rotulo = {OK: "ok", ERRO: "erro", USO: "falta", BLOCKED: "BLOCKED"}[codigo]
+    print("\033[%sm[%s]\033[0m %s" % (cor, rotulo, msg),
+          file=sys.stderr if codigo else sys.stdout)
+    sys.exit(codigo)
+
+
+def git(repo, *args, checar=True):
+    """Roda git. Recusa qualquer argumento perigoso, venha de onde vier."""
+    alvo = " ".join(args)
+    if PERIGO.search(alvo):
+        fim(ERRO, "recusado: argumento proibido em 'git %s'" % alvo)
+    p = subprocess.run(["git", "-C", str(repo), *args],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if checar and p.returncode:
+        fim(ERRO, "git %s falhou:\n%s" % (alvo, (p.stderr or p.stdout).strip()))
+    return p
+
+
+def conferir_repo(caminho):
+    repo = Path(caminho).resolve()
+    if not (repo / ".git").exists():
+        fim(USO, "%s não é um repositório git" % repo)
+    return repo
+
+
+def branch_atual(repo):
+    return git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+
+
+# --------------------------------------------------------------------- estado
+def cmd_estado(a):
+    repo = conferir_repo(a.repo)
+    br = branch_atual(repo)
+    sujo = git(repo, "status", "--porcelain").stdout.strip()
+    git(repo, "fetch", "--quiet", checar=False)
+    upstream = git(repo, "rev-parse", "--abbrev-ref", "@{u}", checar=False)
+    tem_up = upstream.returncode == 0
+
+    print("branch:    %s%s" % (br, "  ⚠️ PROIBIDA" if br in BRANCHES_PROIBIDAS else ""))
+    print("upstream:  %s" % (upstream.stdout.strip() if tem_up else "(nenhum)"))
+    if tem_up:
+        c = git(repo, "rev-list", "--left-right", "--count", "@{u}...HEAD").stdout.split()
+        if len(c) == 2:
+            print("atrás/à frente: %s / %s" % (c[0], c[1]))
+    print("identidade: %s <%s>" % (
+        git(repo, "config", "--local", "user.name", checar=False).stdout.strip() or "(não definida)",
+        git(repo, "config", "--local", "user.email", checar=False).stdout.strip() or "(não definida)"))
+    if sujo:
+        print("\nalterações pendentes:")
+        print(sujo)
+    else:
+        print("\nárvore limpa")
+
+
+# ------------------------------------------------------------------- preparar
+def cmd_preparar(a):
+    repo = conferir_repo(a.repo)
+    for campo, valor in (("--nome", a.nome), ("--email", a.email), ("--base", a.base)):
+        if not valor:
+            fim(USO, "%s é obrigatório (está no AGENTS.md do projeto; se estiver "
+                     "em branco, pergunte ao humano — não invente)" % campo)
+
+    # identidade SEMPRE local: --global é proibido e nem é oferecido
+    git(repo, "config", "--local", "user.name", a.nome)
+    git(repo, "config", "--local", "user.email", a.email)
+
+    if a.estrategia == "por-tarefa":
+        if not (a.key and a.slug):
+            fim(USO, "por-tarefa exige --key e --slug")
+        destino = "feature/%s-%s" % (a.key.lower(), a.slug)
+    else:
+        if not a.branch:
+            fim(USO, "compartilhada exige --branch (a branch do time, do AGENTS.md)")
+        destino = a.branch
+
+    if destino in BRANCHES_PROIBIDAS:
+        fim(ERRO, "recusado: '%s' é branch protegida, bot não trabalha nela" % destino)
+
+    git(repo, "fetch", "--quiet", checar=False)
+    existe = git(repo, "rev-parse", "--verify", "--quiet", destino, checar=False).returncode == 0
+    if existe:
+        git(repo, "checkout", destino)
+    else:
+        remota = git(repo, "rev-parse", "--verify", "--quiet",
+                     "origin/" + destino, checar=False).returncode == 0
+        if remota:
+            git(repo, "checkout", "-b", destino, "origin/" + destino)
+        else:
+            git(repo, "checkout", "-b", destino, "origin/" + a.base)
+    fim(OK, "branch '%s' pronta, identidade local %s <%s>" % (destino, a.nome, a.email))
+
+
+# --------------------------------------------------------------------- commit
+def cmd_commit(a):
+    repo = conferir_repo(a.repo)
+    br = branch_atual(repo)
+    if br in BRANCHES_PROIBIDAS:
+        fim(ERRO, "recusado: commit direto em '%s'" % br)
+
+    if a.tipo not in TIPOS:
+        fim(USO, "tipo inválido '%s' — use um de: %s" % (a.tipo, ", ".join(TIPOS)))
+
+    desc = a.desc.strip().rstrip(".")
+    if not desc:
+        fim(USO, "--desc vazio")
+    if desc[0].isupper():
+        desc = desc[0].lower() + desc[1:]
+    cabecalho = "%s(%s): %s" % (a.tipo, a.escopo, desc) if a.escopo else "%s: %s" % (a.tipo, desc)
+    if len(cabecalho) > 72:
+        fim(USO, "cabeçalho tem %d caracteres (máx. 72): %s" % (len(cabecalho), cabecalho))
+
+    git(repo, "add", "-A")
+    staged = [l for l in git(repo, "diff", "--cached", "--name-only").stdout.splitlines() if l]
+    if not staged:
+        fim(USO, "nada para commitar")
+
+    suspeitos = [f for f in staged if SEGREDOS.search(f)]
+    if suspeitos:
+        git(repo, "reset", checar=False)
+        fim(ERRO, "recusado: arquivo com cara de segredo no commit:\n  " +
+                  "\n  ".join(suspeitos) + "\nAjuste o .gitignore e tente de novo.")
+
+    corpo = "Refs: %s" % a.key
+    if a.bot:
+        corpo = "[bot @%s]\n\n%s" % (a.bot, corpo)
+    git(repo, "commit", "-m", cabecalho, "-m", corpo)
+    sha = git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
+    print("%s  %s" % (sha, cabecalho))
+    print("arquivos: %d" % len(staged))
+    fim(OK, "commit criado em '%s' (hooks rodaram; --no-verify não existe aqui)" % br)
+
+
+# ----------------------------------------------------------------------- push
+def cmd_push(a):
+    repo = conferir_repo(a.repo)
+    br = branch_atual(repo)
+    if br in BRANCHES_PROIBIDAS:
+        fim(ERRO, "recusado: push em '%s'" % br)
+    if git(repo, "status", "--porcelain").stdout.strip():
+        fim(USO, "árvore suja — commite antes de dar push")
+
+    git(repo, "fetch", "--quiet", checar=False)
+    tem_up = git(repo, "rev-parse", "--abbrev-ref", "@{u}", checar=False).returncode == 0
+
+    if tem_up:
+        # a regra da branch compartilhada: rebase antes de todo push, nunca force
+        r = git(repo, "pull", "--rebase", checar=False)
+        if r.returncode:
+            conflitos = git(repo, "diff", "--name-only", "--diff-filter=U",
+                            checar=False).stdout.strip()
+            git(repo, "rebase", "--abort", checar=False)
+            fim(BLOCKED, "conflito no rebase — rebase abortado, nada foi enviado.\n"
+                         "Arquivos em conflito:\n  %s\n"
+                         "Regra do time: bot não resolve conflito de código alheio. "
+                         "Marque a issue como BLOCKED e avise o humano."
+                         % (conflitos.replace("\n", "\n  ") or "(não listados)"))
+        git(repo, "push")
+    else:
+        git(repo, "push", "--set-upstream", "origin", br)
+
+    sha = git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
+    fim(OK, "push de '%s' feito (%s), sem force" % (br, sha))
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Operações git do time de bots, com as regras em código.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("estado", help="branch, upstream, divergência e pendências numa chamada")
+    p.add_argument("repo"); p.set_defaults(func=cmd_estado)
+
+    p = sub.add_parser("preparar", help="identidade local + branch de trabalho")
+    p.add_argument("repo")
+    p.add_argument("--key"); p.add_argument("--slug")
+    p.add_argument("--estrategia", choices=("por-tarefa", "compartilhada"), required=True)
+    p.add_argument("--base"); p.add_argument("--branch")
+    p.add_argument("--nome"); p.add_argument("--email")
+    p.set_defaults(func=cmd_preparar)
+
+    p = sub.add_parser("commit", help="Conventional Commits validado + Refs + trava de segredo")
+    p.add_argument("repo")
+    p.add_argument("--key", required=True)
+    p.add_argument("--tipo", required=True)
+    p.add_argument("--desc", required=True)
+    p.add_argument("--escopo"); p.add_argument("--bot")
+    p.set_defaults(func=cmd_commit)
+
+    p = sub.add_parser("push", help="fetch + pull --rebase + push; conflito vira BLOCKED")
+    p.add_argument("repo"); p.set_defaults(func=cmd_push)
+
+    a = ap.parse_args()
+    a.func(a)
+
+
+if __name__ == "__main__":
+    main()

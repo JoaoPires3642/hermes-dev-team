@@ -4,7 +4,7 @@ Time de bots de dev no **Hermes Agent (Bot Mode)**, com o **kiro-cli** como cér
 motor de execução. Tudo que é decidido vira issue no **TUPLE** (fonte da verdade).
 
 ```
-Entradas (Granola MCP · issue no TUPLE · artefatos/PBIs)
+Entradas (nota de call da Meetily · issue no TUPLE · artefatos/PBIs)
   → @orquestrador → GATE 1 (humano) → issues no TUPLE + sala do projeto
   → @po / @techlead → story BMAD (DoR) → GATE 2 (humano) → .kiro/specs
   → @dev-front / @dev-back → @qa (loop até passar) → PR → GATE 3 (humano, merge)
@@ -47,11 +47,18 @@ cd ~/hermes-dev-team
 Depois, uma vez por máquina:
 
 1. `kiro-cli login`
-2. `hermes -p orquestrador mcp login granola` (OAuth do Granola MCP)
+2. Instalar a [Meetily](https://github.com/Zackriya-Solutions/meetily) (MIT, local) e gravar
+   as calls com o título no formato `[Cliente] Assunto` — é daí que sai o cliente/projeto
 3. Hermes Desktop → Settings → Advanced → **Warm Bot Backends = 7**
-4. Telegram do @orquestrador: `hermes -p orquestrador gateway setup`
+4. Telegram — são **dois** passos, e o segundo é o que costuma faltar:
+   - `hermes -p orquestrador gateway setup` — interativo, pede o token do @BotFather
+   - `hermes gateway install` — instala o gateway do **host** (no profile `default`,
+     sem `-p`). É **um gateway por máquina**, que serve os 7 bots; instalar por profile
+     é recusado para não colocar dois pollers no mesmo token.
+   - conferir: `hermes gateway status`
 5. Routines no Desktop (aba Bots → Routines):
-   - @orquestrador: a cada 15 min — "buscar notas novas no Granola MCP e issues marcadas no TUPLE"
+   - @orquestrador: a cada 15 min — "rodar `meetily-notes novas` e ler as notas novas em
+     ~/Documentos/_calls/, mais as issues marcadas no TUPLE"
    - @pm: dias úteis 9h — "resumo do board: IN_PROGRESS parado, BLOCKED, IN_REVIEW"
 6. Projeto novo: `cp -r templates/projeto ~/Documentos/<Projeto>` (os repos ficam dentro) e preencher:
    - `AGENTS.md` — IDs do TUPLE, repos, branches, restrições (sem segredos)
@@ -73,6 +80,8 @@ plugins/model-providers/kiro-acp/   provider Hermes → kiro-cli acp
 bin/kiro-pool        limita sessões kiro-cli simultâneas (padrão 4)
 bin/tuple-api        chama o TUPLE com a chave do projeto (+ audit)
 bin/hermes-task      manifest + máquina de estados + DoD + circuit breaker (regras em código)
+bin/meetily-notes    exporta as calls da Meetily (SQLite local) como Markdown por cliente
+bin/git-bot          git do time com as regras em código (sem force, rebase antes do push)
 templates/projeto/   AGENTS.md, docs/, memory/, .kiro/steering/, .hermes/tuple.env.example de um projeto novo
 install.sh           instala/atualiza tudo nesta máquina
 ```

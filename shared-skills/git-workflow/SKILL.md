@@ -1,7 +1,7 @@
 ---
 name: git-workflow
-description: Aplique antes de qualquer operação git nos repos dos clientes. Identidade local, branch compartilhada com o time humano, Conventional Commits, sem force e sem pular hooks.
-version: 1.0.0
+description: Aplique antes de qualquer operação git nos repos dos clientes. Use o git-bot; ele já carrega as regras. Aqui fica só o que exige julgamento.
+version: 2.0.0
 author: Joao Pires
 metadata:
   hermes:
@@ -10,54 +10,47 @@ metadata:
 
 # Git workflow (time de bots)
 
-## Credenciais
+**Não monte sequências de git na mão.** Use o `git-bot`: as regras do time estão dentro
+dele, em código. Uma chamada faz o que antes eram cinco, e o que é proibido não depende
+de você lembrar.
 
-- Nada de credencial em arquivo. O git usa o credential helper da máquina
-  (PAT do Azure DevOps / token do GitHub configurado pelo humano no host).
-- Se o `AGENTS.md` do projeto disser que o remote exige **VPN**, ela precisa estar
-  ativa no host. Falhou por rede → `BLOCKED` com comentário, sem tentar contornar.
+```
+git-bot estado   <repo>
+git-bot preparar <repo> --estrategia por-tarefa|compartilhada --base BRANCH
+                        [--key KEY --slug SLUG | --branch BRANCH] --nome NOME --email EMAIL
+git-bot commit   <repo> --key KEY --tipo feat --desc "texto" [--escopo api] [--bot dev-back]
+git-bot push     <repo>
+```
 
-## Identidade
+Saída: `0` ok · `1` erro · `2` falta informação · `3` **BLOCKED** (só humano destrava).
 
-- Branch base, branch de trabalho, alvo do PR e identidade (`user.name`/`user.email`)
-  de cada repo estão no `AGENTS.md` da pasta do projeto (`~/Documentos/<Projeto>/`).
-- Configurar **no repo** (`git config user.name ...`), nunca `--global`.
-- Conferir `git config --local user.name` antes de commitar.
+O `git-bot` já garante, sem você pedir: identidade local (nunca `--global`),
+Conventional Commits validado com `Refs: <KEY>` no corpo, `fetch` + `pull --rebase`
+antes de todo push, recusa de `--force`/`--no-verify`/`reset --hard`, recusa de commit
+ou push em `main`/`master`, e recusa de arquivo com cara de segredo.
 
-## Estratégia de branch (campo do `AGENTS.md` de cada projeto)
+## O que continua sendo decisão sua
 
-- **por-tarefa** → `feature/<KEY>-<slug>` a partir da branch base; front e back na mesma
-  branch da tarefa, cada um só nos seus `allowed_paths`; integra só por PR.
-- **compartilhada** → a branch do time, com as regras abaixo.
+**`--base`, `--branch`, `--nome`, `--email` e a estratégia** vêm do `AGENTS.md` do
+projeto. Campo em branco → **pergunte ao humano**. O `git-bot` recusa em vez de adivinhar,
+e você faz o mesmo: não invente branch nem e-mail.
 
-Nos dois casos todo commit leva `Refs: <KEY>` no corpo (o `hermes-task` usa isso).
+**Saiu `3` (BLOCKED)** → houve conflito de rebase e o rebase foi abortado; nada foi
+enviado. Bot **não resolve conflito de código alheio**. Mova a tarefa para `BLOCKED`
+(`hermes-task move ... BLOCKED`), comente na issue com os arquivos em conflito e avise
+o humano. Não tente de novo.
 
-## Branch compartilhada com humanos
+**Saiu `2`** → falta informação. Pergunte, não preencha por conta própria.
 
-A branch de trabalho pode ser a **mesma** de desenvolvedores humanos. Então:
+**Falha de rede/VPN** → se o `AGENTS.md` disser que o remote exige VPN, ela é
+responsabilidade do host. Falhou por rede → `BLOCKED` com comentário. Não contorne.
 
-1. `git fetch` e `git pull --rebase` **antes de cada push**.
-2. **Nunca** `--force` / `--force-with-lease`.
-3. Conflito no rebase → parar, `git rebase --abort`, `BLOCKED` na issue com os
-   arquivos em conflito e avisar na sala. Não resolver conflito de código alheio
-   no chute.
-4. Não reaproveitar nem apagar branch de outra pessoa.
+**Branch de outra pessoa** → não reaproveite, não apague.
 
-## Commits (Conventional Commits)
+## PR e merge
 
-`<type>(<scope>): <descrição>` — minúsculas, imperativo, sem ponto final, ≤ 72c.
-Tipos: `feat` `fix` `chore` `docs` `refactor` `perf` `test` `build` `ci` `style` `revert`.
-Citar a key da issue no corpo (`Refs: SELL-12`). **Sem** `Co-Authored-By` de agente.
+Abrir PR ainda é manual (o `git-bot` não faz isso ainda): título em Conventional Commits,
+descrição começando com `[bot @<nome>]`, citando a issue, os CAs cobertos e como testou.
+Depois de abrir: issue → `IN_REVIEW` com o link (skill `kanban-tuple`).
 
-## PR
-
-- Título em Conventional Commits; descrição começa com `[bot @<nome>]`, cita a
-  issue, lista os CAs cobertos e como foi testado.
-- Depois de abrir: issue → `IN_REVIEW` com o link (skill `kanban-tuple`).
-- Merge é **sempre humano** (GATE 3).
-
-## Proibido
-
-`--no-verify`, `--no-gpg-sign`, `--force`, `git reset --hard` em branch
-compartilhada, `git config --global`, commitar `.env`/segredos. Hook falhou →
-corrigir a causa.
+**Merge é sempre humano (GATE 3).** Nenhum bot faz merge, em nenhuma circunstância.

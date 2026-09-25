@@ -49,11 +49,13 @@ fi
 # ---------------------------------------------------------------- kiro-pool + agentes Kiro
 python3 -c 'import yaml' 2>/dev/null || die "hermes-task precisa de python3 com PyYAML (Arch: pacman -S python-yaml)"
 
-say "Instalando kiro-pool, tuple-api e hermes-task em $BIN_DIR"
+say "Instalando kiro-pool, tuple-api, hermes-task, meetily-notes e git-bot em $BIN_DIR"
 mkdir -p "$BIN_DIR"
 install -m 755 "$REPO/bin/kiro-pool" "$BIN_DIR/kiro-pool"
 install -m 755 "$REPO/bin/tuple-api" "$BIN_DIR/tuple-api"
 install -m 755 "$REPO/bin/hermes-task" "$BIN_DIR/hermes-task"
+install -m 755 "$REPO/bin/meetily-notes" "$BIN_DIR/meetily-notes"
+install -m 755 "$REPO/bin/git-bot" "$BIN_DIR/git-bot"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH";; esac
 
 say "Instalando agentes Kiro em ~/.kiro/agents"
@@ -122,10 +124,11 @@ cat <<EOF
 
 Próximos passos (uma vez por máquina):
   1. kiro-cli login                                  # conta da empresa
-  2. hermes -p orquestrador mcp login granola        # OAuth do Granola MCP
+  2. instalar a Meetily (transcrição local) e gravar as calls como '[Cliente] Assunto'
   3. Hermes Desktop → Settings → Advanced → Warm Bot Backends = 7
-  4. Telegram: hermes -p orquestrador gateway setup  (ver README)
-  5. Routines no Desktop: @orquestrador (Granola + TUPLE) e @pm (diária)
+  4. Telegram: hermes -p orquestrador gateway setup   # token do @BotFather
+     depois:   hermes gateway install                 # gateway do host (sem -p), serve os 7
+  5. Routines no Desktop: @orquestrador (meetily-notes + TUPLE) e @pm (diária)
   6. Projeto novo: cp -r $REPO/templates/projeto ~/Documentos/<Projeto>
      preencher AGENTS.md, .kiro/steering/ e .hermes/tuple.env (chave DO projeto, chmod 600)
 EOF
