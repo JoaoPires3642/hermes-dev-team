@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""openwhispr-notes — exporta as reuniões do OpenWhispr como Markdown para o @orquestrador.
+
+Irmão do `meetily-notes`: mesma saída, mesma pasta, mesmo agendador. Só muda a fonte.
+Os dois podem conviver — cada um tem sua própria marca d'água.
+
+O OpenWhispr (MIT, transcrição e diarização locais) guarda tudo em
+%APPDATA%/open-whispr/transcriptions.db. A API e o MCP deles são em NUVEM e pedem
+plano pago, então aqui se lê o SQLite local: de graça e sem o áudio sair da máquina.
+
+  openwhispr-notes novas   [--inbox DIR] [--db PATH]   # só as reuniões ainda não exportadas
+  openwhispr-notes todas   [--inbox DIR] [--db PATH]   # reexporta tudo
+  openwhispr-notes onde                                # mostra o banco e a inbox
+
+Cliente/projeto vem da PASTA da reunião no OpenWhispr (crie uma por cliente, como no
+Granola). Pasta padrão (Personal/Meetings/Videos) cai para o prefixo "[Cliente]" do
+título; sem nada disso, vai para `_sem-cliente` e o @orquestrador pergunta.
+
+Diferença importante para o meetily-notes: aqui existe quem-falou (`speaker_mappings`),
+então a transcrição sai com os nomes.
+
+Códigos de saída: 0 ok · 1 erro · 2 uso
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
+
+DB_NOME = "transcriptions.db"
+MARCA = ".ultima-exportacao-openwhispr.json"
+LOG = ".openwhispr-notes.log"
+# pastas que o app cria sozinho: não são cliente
+PASTAS_PADRAO = {"personal", "meetings", "videos", "inbox", "general"}
+
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
+
+def inbox_padrao():
+    casa = Path.home()
+    for nome in ("Documentos", "Documents"):
+        if (casa / nome).is_dir():
+            return casa / nome / "_calls"
+    return casa / "Documentos" / "_calls"
+
+
+def registrar(inbox, msg):
+    """Roda agendado sem console: sem este log, falha é invisível."""
+    try:
+        with open(Path(inbox) / LOG, "a", encoding="utf-8") as fh:
+            fh.write(dt.datetime.now().isoformat(timespec="seconds") + "  " + msg + "\n")
+    except OSError:
+        pass
+
+
+def erro(msg, inbox=None):
+    if inbox:
+        registrar(inbox, "ERRO: " + msg)
+    print("\033[1;31m[erro]\033[0m " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def achar_db(explicito, inbox=None):
+    if explicito:
+        p = Path(explicito)
+        if not p.is_file():
+            erro("banco não encontrado: " + str(p), inbox)
+        return p
+    candidatos = []
+    if sys.platform == "win32":
+        raiz = os.getenv("APPDATA")
+        if raiz:
+            candidatos += list(Path(raiz).glob("*/" + DB_NOME))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+        candidatos += list(base.glob("*/" + DB_NOME))
+    else:
+        base = Path(os.getenv("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+        candidatos += list(base.glob("*/" + DB_NOME))
+    candidatos = [p for p in candidatos if "whispr" in str(p).lower()]
+    if not candidatos:
+        erro("não achei o " + DB_NOME + " do OpenWhispr. O app está instalado? "
+             "Se sim, passe o caminho com --db.", inbox)
+    return max(candidatos, key=lambda p: p.stat().st_mtime)
+
+
+def abrir_somente_leitura(db):
+    """Copia banco + WAL e lê da cópia: nunca disputa lock com o app aberto."""
+    tmp = Path(tempfile.mkdtemp(prefix="openwhispr-notes-"))
+    shutil.copy2(db, tmp / db.name)
+    for sufixo in ("-wal", "-shm"):
+        origem = db.with_name(db.name + sufixo)
+        if origem.exists():
+            shutil.copy2(origem, tmp / (db.name + sufixo))
+    con = sqlite3.connect("file:" + str(tmp / db.name).replace("\\", "/") + "?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def slug(txt):
+    s = re.sub(r"[^\w\s-]", "", txt or "", flags=re.UNICODE).strip().lower()
+    return re.sub(r"[\s_-]+", "-", s).strip("-")[:60] or "sem-titulo"
+
+
+def cliente_do_titulo(titulo):
+    m = re.match(r"^\s*\[([^\]]+)\]\s*(.*)$", titulo or "")
+    if not m:
+        m = re.match(r"^\s*([^\-–—]{2,40}?)\s*[\-–—]\s*(.+)$", titulo or "")
+    if m:
+        return m.group(1).strip(), (m.group(2).strip() or (titulo or "").strip())
+    return None, (titulo or "").strip()
+
+
+def tabelas(con):
+    return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def render_transcricao(bruto, nomes):
+    """O OpenWhispr guarda o transcript como JSON de segmentos, não texto:
+    [{"text","source":"mic"|"system","speaker":"you"|"speaker_N","timestamp"}, ...]
+
+    Vira diálogo legível, agrupando falas seguidas do mesmo interlocutor. `source`
+    separa quem fala: "mic" é o dono da máquina, "system" é o outro lado da call —
+    numa 1:1 isso vale mais que diarização genérica. `nomes` (de speaker_mappings)
+    substitui speaker_N pelo nome real quando o usuário tiver nomeado as vozes.
+    """
+    bruto = (bruto or "").strip()
+    if not bruto:
+        return ""
+    if not bruto.startswith("["):
+        return bruto  # já é texto puro (versão antiga do app, ou formato mudou)
+    try:
+        segmentos = json.loads(bruto)
+    except ValueError:
+        return bruto
+    if not isinstance(segmentos, list):
+        return bruto
+
+    def quem(seg):
+        chave = str(seg.get("speaker") or "")
+        if chave in nomes:
+            return nomes[chave]
+        if chave == "you" or seg.get("source") == "mic":
+            return "você"
+        return chave.replace("speaker_", "voz ") if chave else "desconhecido"
+
+    linhas, atual, acumulado = [], None, []
+    for seg in segmentos:
+        if not isinstance(seg, dict):
+            continue
+        texto = (seg.get("text") or "").strip()
+        if not texto:
+            continue
+        falante = quem(seg)
+        if falante != atual:
+            if acumulado:
+                linhas.append("**" + atual + "**: " + " ".join(acumulado))
+            atual, acumulado = falante, [texto]
+        else:
+            acumulado.append(texto)
+    if acumulado:
+        linhas.append("**" + atual + "**: " + " ".join(acumulado))
+    return "\n\n".join(linhas)
+
+
+def ler_reunioes(con):
+    presentes = tabelas(con)
+    if "notes" not in presentes:
+        erro("este banco não parece ser do OpenWhispr (sem tabela 'notes')")
+
+    pastas = {}
+    if "folders" in presentes:
+        pastas = {r["id"]: (r["name"] or "") for r in con.execute("SELECT id, name FROM folders")}
+
+    colunas = {d[1] for d in con.execute("PRAGMA table_info(notes)")}
+    def tem(c):
+        return c in colunas
+
+    reunioes = []
+    for n in con.execute("SELECT * FROM notes ORDER BY created_at"):
+        if tem("deleted_at") and n["deleted_at"]:
+            continue
+        transcricao = (n["transcript"] if tem("transcript") else "") or ""
+        conteudo = (n["content"] if tem("content") else "") or ""
+        melhorado = (n["enhanced_content"] if tem("enhanced_content") else "") or ""
+        if not (transcricao.strip() or conteudo.strip() or melhorado.strip()):
+            continue  # nota vazia não vira nota de call
+
+        pasta = pastas.get(n["folder_id"] if tem("folder_id") else None, "") or ""
+        do_titulo, assunto = cliente_do_titulo(n["title"] if tem("title") else "")
+        if pasta and pasta.strip().lower() not in PASTAS_PADRAO:
+            cliente = pasta.strip()
+        elif do_titulo:
+            cliente = do_titulo
+        else:
+            cliente = "_sem-cliente"
+
+        nomes = {}
+        if "speaker_mappings" in presentes:
+            for r in con.execute(
+                    "SELECT speaker_id, display_name FROM speaker_mappings "
+                    "WHERE note_id = ? AND display_name IS NOT NULL AND display_name <> ''",
+                    (n["id"],)):
+                nomes[str(r["speaker_id"])] = r["display_name"]
+        vozes = sorted(set(nomes.values()))
+
+        reunioes.append({
+            "id": str(n["id"]),
+            "cliente": cliente,
+            "pasta": pasta,
+            "assunto": assunto or "(sem título)",
+            "criado_em": (n["created_at"] if tem("created_at") else "") or "",
+            "duracao": (n["audio_duration_seconds"] if tem("audio_duration_seconds") else None),
+            "participantes": (n["participants"] if tem("participants") else "") or "",
+            "vozes": vozes,
+            "notas": melhorado.strip() or conteudo.strip(),
+            "transcricao": render_transcricao(transcricao, nomes),
+        })
+    return reunioes
+
+
+def escrever_nota(r, inbox):
+    data = str(r["criado_em"])[:10] or dt.date.today().isoformat()
+    destino = inbox / slug(r["cliente"])
+    destino.mkdir(parents=True, exist_ok=True)
+    caminho = destino / (data + "-" + slug(r["assunto"]) + ".md")
+
+    cab = ["---",
+           "note_id: " + r["id"],
+           "cliente: " + r["cliente"],
+           "titulo: " + r["assunto"],
+           "criado_em: " + str(r["criado_em"]),
+           "fonte: openwhispr"]
+    if r["pasta"]:
+        cab.append("pasta: " + r["pasta"])
+    if r["vozes"]:
+        cab.append("vozes: " + ", ".join(r["vozes"]))
+    cab.append("---")
+
+    partes = cab + ["", "# " + r["assunto"], ""]
+    resumo = "> Cliente: **" + r["cliente"] + "** · call de " + data
+    if r["duracao"]:
+        try:
+            resumo += " · " + str(round(float(r["duracao"]) / 60)) + " min"
+        except (TypeError, ValueError):
+            pass
+    partes += [resumo + " · transcrita localmente pelo OpenWhispr.", ""]
+
+    if r["vozes"]:
+        partes += ["## Quem falou", "", ", ".join(r["vozes"]), ""]
+    elif r["participantes"]:
+        partes += ["## Participantes", "", r["participantes"], ""]
+    if r["notas"]:
+        partes += ["## Notas", "", r["notas"], ""]
+    if r["transcricao"]:
+        partes += ["## Transcrição", "", r["transcricao"], ""]
+
+    caminho.write_text("\n".join(partes), encoding="utf-8")
+    return caminho
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Exporta as reuniões do OpenWhispr como Markdown.")
+    ap.add_argument("comando", choices=("novas", "todas", "onde"))
+    ap.add_argument("--db", help="caminho do " + DB_NOME + " (padrão: detecta sozinho)")
+    padrao = inbox_padrao()
+    ap.add_argument("--inbox", default=str(padrao), help="pasta de saída (padrão: " + str(padrao) + ")")
+    args = ap.parse_args()
+
+    inbox = Path(args.inbox)
+    db = achar_db(args.db, inbox if args.comando != "onde" else None)
+
+    if args.comando == "onde":
+        print("banco: " + str(db))
+        print("inbox: " + str(inbox))
+        return
+
+    inbox.mkdir(parents=True, exist_ok=True)
+    marca = inbox / MARCA
+    desde = ""
+    if args.comando == "novas" and marca.is_file():
+        desde = json.loads(marca.read_text(encoding="utf-8")).get("ate", "")
+
+    con = abrir_somente_leitura(db)
+    try:
+        reunioes = ler_reunioes(con)
+    finally:
+        con.close()
+
+    novas = [r for r in reunioes if str(r["criado_em"]) > desde] if desde else reunioes
+    for r in novas:
+        print(escrever_nota(r, inbox))
+
+    if reunioes:
+        marca.write_text(json.dumps(
+            {"ate": max(str(r["criado_em"]) for r in reunioes),
+             "exportado_em": dt.datetime.now().isoformat(timespec="seconds")},
+            ensure_ascii=False), encoding="utf-8")
+
+    registrar(inbox, str(len(novas)) + " nota(s) de " + str(len(reunioes)) + " reuniao(oes)")
+    print("\n" + str(len(novas)) + " nota(s) nova(s) em " + str(inbox), file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
