@@ -29,11 +29,26 @@
   economiza; o @pm faz trabalho quase mecânico todo dia útil, então é o mais barato.
 - **@orquestrador** recebe tudo e resume → **GATE 1** (aprovação humana do resumo e
   das issues propostas) → cria issues no TUPLE e chama os bots por @menção.
-- Bots conversam por **@menção / message_agent** — ⚠️ **não está funcionando hoje**. O Hermes
-  injeta o `message_agent` só na sessão canônica "Bot Chat" e só em profile reconhecido como
-  Bot Mode, o que exige um `profile.yaml` com a chave `hermes-bots` — criado pela aba Bots do
-  Desktop, não pelo `hermes profile install`. Hoje só o @dev-back tem. Ou seja, a ideia de
-  **"sem sala obrigatória" não se sustenta**: a sala é o único lugar onde a ferramenta existe.
+- Bots conversam por **@menção / message_agent**, e isso tem **duas** condições, não uma:
+  1. o profile precisa de `profile.yaml` com a chave `hermes-bots` (aba Bots do Desktop; o
+     `hermes profile install` não cria). Os 7 têm — verificado em 29/09/2026.
+  2. a **sessão** precisa se chamar exatamente `Bot Chat`. O portão está em
+     `tools/bot_mode_dm.py` (`_session_title(agent) == BOT_CHAT_TITLE`), e a seção do
+     protocolo no system prompt, que carrega o roster, repete a condição em
+     `agent/system_prompt.py`.
+
+  A segunda é a que engana. Numa aba nova o bot sobe **inteiro** — modelo, as 62 skills,
+  SOUL, AGENTS.md — e mesmo assim não enxerga ninguém: vira um bot solo que não sabe que
+  o time existe. Testado nos dois sentidos no mesmo profile: em sessão nova o @orquestrador
+  responde que não tem a ferramenta; no `Bot Chat` ele lista o roster inteiro. O custo é o
+  silêncio — ele fecha um GATE prometendo *"distribuo S1 para @techlead"* sem ter como.
+
+  As sessões `Bot Chat` são **ocultas por design** ("Bot Mode always HIDES canonical chats"),
+  então `hermes sessions list` não mostra nenhuma: não confunda ausente com inexistente.
+  O instalador cria a de cada bot; para conferir de fora, é consulta ao `state.db`.
+
+  Ou seja, a ideia de **"sem sala obrigatória" não se sustenta**: a sala é o único lugar
+  onde a ferramenta existe.
 - **@techlead** escreve a story BMAD (DoR) → **GATE 2** (aprovação humana) → gera
   `.kiro/specs` e libera @dev-front / @dev-back.
 - **@pm** routine diária no TUPLE.

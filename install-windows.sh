@@ -155,6 +155,28 @@ PY
   fi
 done
 
+# Bot Chat canonico de cada bot.
+#
+# `message_agent` — a unica via de um bot falar com outro — nao e um toolset: e
+# injetada por um portao que exige que o TITULO da sessao seja exatamente
+# "Bot Chat" (tools/bot_mode_dm.py: `_session_title(agent) == BOT_CHAT_TITLE`).
+# A secao do protocolo no system prompt, que carrega o roster, tem o mesmo
+# portao (agent/system_prompt.py). Sem essa sessao o bot sobe inteiro — modelo,
+# skills, SOUL — e mesmo assim nao enxerga o time: fica um bot solo.
+#
+# O sintoma e caro por ser silencioso: o @orquestrador fecha um GATE prometendo
+# "distribuo S1 para @techlead" e nao tinha como. Por isso a sessao nasce aqui,
+# na instalacao, e nao quando alguem repara na falta.
+#
+# `-c "Bot Chat" --create-if-missing` e idempotente: reaproveita a que existir.
+say "Bot Chat de cada bot (portao do message_agent)"
+for b in "${BOTS[@]}"; do
+  "$HERMES" -p "$b" chat -c "Bot Chat" --create-if-missing \
+    -q "ping de instalacao" --oneshot -Q --max-turns 1 >/dev/null 2>&1 \
+    && say "  @$b: Bot Chat pronto" \
+    || warn "@$b: Bot Chat nao criou — sem ele este bot nao alcanca os outros"
+done
+
 say "Pronto: ${BOTS[*]}"
 cat <<EOF
 
