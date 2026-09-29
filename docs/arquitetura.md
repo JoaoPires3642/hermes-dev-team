@@ -1,6 +1,7 @@
 # Arquitetura — time de bots de dev (Hermes + TUPLE + kiro-cli)
 
-> Diagrama visual: salvar o Excalidraw como `docs/arquitetura.excalidraw`.
+> Diagrama visual: [`docs/arquitetura.excalidraw`](arquitetura.excalidraw) — abra em
+> excalidraw.com (menu → Abrir). Este texto é a fonte da verdade; o desenho segue atrás.
 
 ## 1. Entradas
 - **Call** → **OpenWhispr** (open source, MIT): transcreve e separa quem falou **localmente**,
