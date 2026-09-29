@@ -23,8 +23,14 @@ BOTS=("${@:-${ALL_BOTS[@]}}")
 HERMES_ROOT="${HERMES_HOME:-$LOCALAPPDATA/hermes}"
 HERMES="${HERMES_CMD:-$LOCALAPPDATA/hermes/bin/hermes.cmd}"
 KIRO_EXE="$LOCALAPPDATA/Kiro-Cli/kiro-cli.exe"
-KIRO_WIN='C:\Users\joao.pires\AppData\Local\Kiro-Cli\kiro-cli.exe'
-CBM_WIN='C:\Users\joao.pires\AppData\Local\Programs\codebase-memory-mcp\codebase-memory-mcp.exe'
+# Barras normais de propósito: o Windows aceita, e contrabarra em .env é armadilha.
+# O set_env passa o valor por `awk -v`, que processa escapes — "C:\Users\..." vira
+# "C:Users..." porque \U, \A, \L são comidos. O .env fica corrompido em disco e o
+# provider falha com "Could not find the kiro-acp CLI command".
+KIRO_WIN="$LOCALAPPDATA/Kiro-Cli/kiro-cli.exe"
+CBM_WIN="$LOCALAPPDATA/Programs/codebase-memory-mcp/codebase-memory-mcp.exe"
+KIRO_WIN="${KIRO_WIN//\\//}"
+CBM_WIN="${CBM_WIN//\\//}"
 
 # grava/atualiza KEY=VAL sem apagar o resto do arquivo. Reinstalar NÃO pode derrubar o
 # que o usuário configurou depois (token do gateway, etc.) — o README promete que
