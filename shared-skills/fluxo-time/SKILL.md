@@ -58,12 +58,44 @@ Só o **@orquestrador** lê entrada externa bruta.
 
 ## Handoffs (sem sala)
 
-- Não existe sala obrigatória. Os bots se falam direto por **@menção / `message_agent`**
-  e o **registro oficial é o comentário na issue do TUPLE** (`[bot @nome] ...`).
-  O humano pode abrir um Group Chat no Desktop só para acompanhar.
-- Fale com outro bot por **@menção / `message_agent`**. Não fique esperando em loop —
-  mas **também não dispare e esqueça**: veja "despachar não é entregar", abaixo.
+- Não existe sala obrigatória. O **registro oficial é o comentário na issue do TUPLE**
+  (`[bot @nome] ...`). O humano pode abrir um Group Chat no Desktop só para acompanhar.
 - Toda passagem de bastão é um **handoff sintetizado** (abaixo), nunca o log da conversa.
+
+### Trabalho vai em sessão NOVA, na pasta do cliente
+
+**Não delegue trabalho por `message_agent`.** Ele entrega na `Bot Chat` do colega —
+uma sessão só, eterna, compartilhada por **todos os clientes** (veja "a caixa de
+entrada é UMA só"). Com um cliente isso passa; com três, o bot recebe a tarefa do
+cliente C dentro da conversa acumulada dos clientes A e B, e quando encher ele
+**compacta** — resume tudo junto e responde sobre o projeto errado, sem erro
+nenhum na tela.
+
+Para dar trabalho a outro bot, abra uma sessão **nova**, **amarrada à pasta do
+cliente**:
+
+```bash
+hermes -p <bot> --in "<pasta-do-projeto>" \
+  chat --query-file "<caminho-do-handoff>" --oneshot -Q
+```
+
+O que isso garante, e o `message_agent` não:
+
+| | sessão nova (`--in <projeto>`) | `message_agent` (Bot Chat) |
+|---|---|---|
+| histórico herdado | nenhum | tudo, de todos os clientes |
+| pasta de trabalho | a do cliente | a home (`--in ~`) |
+| `AGENTS.md` do cliente | injetado | não |
+| compactação misturando clientes | impossível | inevitável |
+| `target_busy` | não existe | é a falha mais comum |
+
+Ela nasce limpa, faz a tarefa, devolve pelo stdout e morre. Nada sobra para o
+próximo cliente. **Tarefa longa**: dispare pelo `terminal` em background com
+notificação ao concluir — mesmo "dispare e siga", sem a caixa compartilhada.
+
+**O `message_agent` continua valendo para recado curto** — avisar que um handoff
+foi escrito, perguntar uma coisa objetiva, cobrar. Recado é o que a caixa aguenta.
+Trabalho, não.
 
 ### Despachar não é entregar
 
@@ -103,6 +135,9 @@ registre no comentário da issue e escale para o humano. Laço de reenvio é tur
 pago que não entrega nada (skill `token-economy`).
 
 ### A caixa de entrada é UMA só, e é de todos os clientes
+
+Isto vale para o **recado** que ainda passa por `message_agent`. Trabalho não passa
+por aqui — veja "trabalho vai em sessão NOVA", acima.
 
 Cada bot tem **uma** sessão `Bot Chat`, para sempre. O relay entrega assim:
 
