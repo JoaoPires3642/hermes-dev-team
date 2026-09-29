@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -35,6 +36,8 @@ from pathlib import Path
 DB_NOME = "transcriptions.db"
 MARCA = ".ultima-exportacao-openwhispr.json"
 LOG = ".openwhispr-notes.log"
+TRAVA = ".exportando.lock"
+FILA = ".novas.txt"  # fila do @orquestrador: o que ele ainda não viu
 # pastas que o app cria sozinho: não são cliente
 PASTAS_PADRAO = {"personal", "meetings", "videos", "inbox", "general"}
 
@@ -274,6 +277,8 @@ def main():
     ap.add_argument("--db", help="caminho do " + DB_NOME + " (padrão: detecta sozinho)")
     padrao = inbox_padrao()
     ap.add_argument("--inbox", default=str(padrao), help="pasta de saída (padrão: " + str(padrao) + ")")
+    ap.add_argument("--ao-criar", dest="ao_criar", default=None,
+                    help="comando a rodar SÓ quando houver nota nova (acorda o @orquestrador)")
     args = ap.parse_args()
 
     inbox = Path(args.inbox)
@@ -285,6 +290,28 @@ def main():
         return
 
     inbox.mkdir(parents=True, exist_ok=True)
+
+    # Uma execução por vez. Sem isso, uma rodada agendada que não achou nada reescreve
+    # a fila como vazia no meio de outra que acabou de enfileirar — e o @orquestrador,
+    # já acordado, lê uma fila vazia e perde a nota.
+    trava = inbox / TRAVA
+    try:
+        fd = os.open(str(trava), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        idade = dt.datetime.now().timestamp() - trava.stat().st_mtime
+        if idade < 600:   # outra execução em andamento
+            registrar(inbox, "pulei: outra execucao em andamento")
+            return
+        trava.unlink(missing_ok=True)   # trava órfã de execução que morreu
+        fd = os.open(str(trava), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.close(fd)
+    try:
+        _exportar(args, db, inbox)
+    finally:
+        trava.unlink(missing_ok=True)
+
+
+def _exportar(args, db, inbox):
     marca = inbox / MARCA
     desde = ""
     if args.comando == "novas" and marca.is_file():
@@ -297,8 +324,33 @@ def main():
         con.close()
 
     novas = [r for r in reunioes if str(r["criado_em"]) > desde] if desde else reunioes
+    criados = []
     for r in novas:
-        print(escrever_nota(r, inbox))
+        caminho = escrever_nota(r, inbox)
+        criados.append(caminho)
+        print(caminho)
+
+    # Fila para o @orquestrador. Ele NÃO controla o que já leu: a routine dele roda a
+    # cada 15 min e, sem isso, re-triava as mesmas notas indefinidamente (a ponto de
+    # tentar desligar a própria routine). Quem sabe o que é novo é este script, então
+    # é ele que diz. Reescrito a cada execução: vazio = nada novo = bot fica em silêncio.
+    (inbox / FILA).write_text(
+        "\n".join(str(c) for c in criados) + ("\n" if criados else ""), encoding="utf-8")
+
+    # Acorda o bot SÓ quando há nota nova. Com a routine disparando sozinha a cada 15
+    # min, ele reprocessava as mesmas notas: o prompt manda responder [SILENT] com a
+    # fila vazia, mas ele desconfia do arquivo vazio, vai conferir a pasta e re-triage
+    # assim mesmo. Não dá para resolver no texto — resolve-se não chamando.
+    if criados and args.ao_criar:
+        registrar(inbox, "disparando: " + args.ao_criar)
+        try:
+            saida = subprocess.run(args.ao_criar, shell=True, capture_output=True,
+                                   text=True, timeout=120)
+            if saida.returncode:
+                registrar(inbox, "gatilho falhou (%d): %s" %
+                          (saida.returncode, (saida.stderr or "").strip()[:200]))
+        except (OSError, subprocess.SubprocessError) as exc:
+            registrar(inbox, "gatilho não executou: %s" % exc)
 
     if reunioes:
         marca.write_text(json.dumps(
