@@ -16,7 +16,7 @@ BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 
 BOTS = {
     "orquestrador": {
-        "model": "claude-opus-5-5", "provider": "anthropic",  # le entrada externa nao confiavel: precisa julgar injecao e nao inventar cliente
+        "model": "claude-opus-5", "provider": "anthropic",  # le entrada externa nao confiavel: precisa julgar injecao e nao inventar cliente
         "desc": "Recebe as entradas (notas de call da Meetily, issues marcadas no TUPLE, artefatos/PBIs), resume, propõe issues, pede o GATE 1 e distribui o trabalho por @menção.",
         "pet": "octopus",
         "toolsets": BASE_TOOLS + ["cronjob", "file"],

@@ -1,6 +1,6 @@
 # Bot @orquestrador — gerado por scripts/gen_bots.py
 model:
-  default: "claude-opus-5-5"
+  default: "claude-opus-5"
   provider: "anthropic"
 
 agent:
