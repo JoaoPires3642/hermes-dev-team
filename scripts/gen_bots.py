@@ -10,6 +10,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TUPLE_CURL = "tuple-api *"
 TASK = "hermes-task *"
+# identidade visual de cada bot na aba Bots do Desktop (forma, matiz do hsl)
+FORMAS = {
+    "orquestrador": ("circle", 313), "po": ("square", 13), "pm": ("diamond", 43),
+    "techlead": ("triangle", 193), "dev-front": ("circle", 253),
+    "dev-back": ("triangle", 103), "qa": ("square", 283),
+}
+
 FINGIR_HUMANO = ["hermes-task * --by humano*", "hermes-task *--by=humano*"]
 
 BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
@@ -189,6 +196,22 @@ platform_toolsets:
   telegram:
 {yaml_list(b['toolsets'], 4)}
 {browser}{mcp}""", encoding="utf-8", newline="\n")
+
+    # profile.yaml — SEM ele o Hermes não reconhece o profile como Bot Mode e não injeta
+    # o `message_agent`: os bots simplesmente não conseguem se chamar por @menção. Quem
+    # normalmente cria é a aba Bots do Desktop, um bot de cada vez; como o conteúdo é só
+    # identidade visual, geramos aqui para uma instalação limpa já nascer funcionando.
+    forma, matiz = FORMAS.get(name, ("circle", 200))
+    (d / "profile.yaml").write_text(
+        "ui_meta:\n"
+        "  hermes-bots:\n"
+        f"    shape: {forma}\n"
+        f"    color: hsl({matiz} 68% 58%)\n"
+        "    imageKind: shape\n"
+        "    title: ''\n"
+        "    custom: true\n"
+        "_ui_meta_revisions:\n"
+        "  hermes-bots: 1\n", encoding="utf-8", newline="\n")
 
     (d / ".gitignore").write_text(GITIGNORE, encoding="utf-8", newline="\n")
 

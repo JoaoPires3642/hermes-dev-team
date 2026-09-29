@@ -1,0 +1,9 @@
+ui_meta:
+  hermes-bots:
+    shape: circle
+    color: hsl(253 68% 58%)
+    imageKind: shape
+    title: ''
+    custom: true
+_ui_meta_revisions:
+  hermes-bots: 1

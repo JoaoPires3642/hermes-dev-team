@@ -1,0 +1,9 @@
+ui_meta:
+  hermes-bots:
+    shape: triangle
+    color: hsl(103 68% 58%)
+    imageKind: shape
+    title: ''
+    custom: true
+_ui_meta_revisions:
+  hermes-bots: 1
