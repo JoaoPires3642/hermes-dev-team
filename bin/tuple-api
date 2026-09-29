@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # tuple-api — chama a API tRPC do Tuple com a chave DO PROJETO, sem expor a chave.
 #
-#   tuple-api <pasta-do-projeto> contexto                          (IDs, sem a chave)
+#   tuple-api <pasta-do-projeto> contexto                          (IDs de UM projeto)
+#   tuple-api <pasta-do-projeto> projetos                          (TODOS do workspace)
 #   tuple-api <pasta-do-projeto> get  <procedure> '<json-input>'
 #   tuple-api <pasta-do-projeto> post <procedure> '<json-body>'
 #   tuple-api <pasta-do-projeto> post <procedure> @payload.json   (corpo de arquivo)
@@ -18,7 +19,7 @@ set -euo pipefail
 
 [[ $# -ge 2 ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
 dir=${1%/} method=$2 proc=${3:-} json=${4:-'{}'}
-[[ "$method" == "contexto" || $# -ge 3 ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
+[[ "$method" == "contexto" || "$method" == "projetos" || $# -ge 3 ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
 
 [[ -f "$dir/AGENTS.md" ]] || { echo "tuple-api: $dir não parece uma pasta de projeto (sem AGENTS.md)" >&2; exit 2; }
 envf="$dir/.hermes/tuple.env"
@@ -29,6 +30,27 @@ ler() { sed -n "s/^$1=//p" "$envf" | tail -1; }
 ws=$(ler TUPLE_WORKSPACE_ID)
 base=${TUPLE_API_BASE:-$(ler TUPLE_API_BASE)}
 base=${base:-https://api.tuple.hypesoft.com.br}
+
+if [[ "$method" == "projetos" ]]; then
+  # TODOS os projetos do workspace, sem exigir escolher um. É o que o @pm usa para
+  # varrer o board inteiro: um workspace costuma ter mais de um projeto (o do
+  # skymark tem três), e `contexto` erra de propósito quando há ambiguidade.
+  [[ -n "$ws" ]] || { echo "tuple-api: TUPLE_WORKSPACE_ID vazio em $envf" >&2; exit 2; }
+  printf 'header = "Authorization: Bearer %s"\n' "$key" \
+    | curl -sS -K - -G "$base/trpc/projects.list" --data-urlencode "input={\"workspaceId\":\"$ws\"}" \
+    | WS="$ws" python -c '
+import json, os, sys
+d = json.load(sys.stdin)
+if "error" in d:
+    sys.exit("tuple-api: projects.list falhou: " + str(d["error"].get("message"))[:120])
+r = d.get("result", {}).get("data", d)
+ps = r if isinstance(r, list) else (r.get("items") or r.get("projects") or [])
+print(json.dumps({"workspaceId": os.environ["WS"],
+                  "projetos": [{"id": p.get("id"), "nome": p.get("name"),
+                                "teamId": p.get("teamId")} for p in ps]}, ensure_ascii=False))
+'
+  exit $?
+fi
 
 if [[ "$method" == "contexto" ]]; then
   [[ -n "$ws" ]] || { echo "tuple-api: TUPLE_WORKSPACE_ID vazio em $envf (não é descobrível pela API)" >&2; exit 2; }
