@@ -10,6 +10,9 @@
   ],
   "allowedTools": [
     "read",
+    "write",
+    "shell",
+    "@codebase-memory-mcp",
     "@codebase-memory-mcp"
   ],
   "permissions": {

@@ -19,6 +19,7 @@ platform_toolsets:
     - skills
     - todo
     - file
+    - terminal
   telegram:
     - clarify
     - memory
@@ -26,3 +27,4 @@ platform_toolsets:
     - skills
     - todo
     - file
+    - terminal

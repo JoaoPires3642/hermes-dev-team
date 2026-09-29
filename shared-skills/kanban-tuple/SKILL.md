@@ -27,9 +27,14 @@ fica só na conversa.
 
 ## Identificadores do projeto
 
-`workspaceId`, `projectId`, `teamId`, prefixo das issues e `assigneeId` ficam no
-`AGENTS.md` da pasta do projeto (`~/Documentos/<Projeto>/AGENTS.md`). Ler de lá;
-se faltar algum, perguntar ao humano — não chutar.
+`TUPLE_WORKSPACE_ID`, `TUPLE_PROJECT_ID`, `TUPLE_TEAM_ID` e `TUPLE_PREFIXO` ficam
+no **`.hermes/tuple.env`** da pasta do projeto, ao lado da chave — não no
+`AGENTS.md`. O `AGENTS.md` é tabela preenchida à mão: célula vazia ou reformatada
+quebra o parse, e **copiar o `workspaceId` do projeto errado escreve no board de
+outro cliente**. Faltou algum → pergunte, não chute.
+
+Anote no `tuple.env` **a data em que validou os IDs**. Eles mudam se o projeto for
+recriado, e o sintoma é `403` em chamada que antes funcionava.
 
 Para descobrir o ID de uma pessoa: ler o objeto `assignee` de uma issue que ela
 já tenha (`members.*` é inacessível pela API).
@@ -40,6 +45,7 @@ já tenha (`members.*` é inacessível pela API).
 - **Mutation** — `POST /trpc/<proc>` com o JSON no body
 
 ```bash
+# a pasta do projeto: ~/Documentos/<Projeto> no Linux, ~/Documents/<Projeto> no Windows
 P=~/Documentos/<Projeto>
 
 # query  (GET  /trpc/<proc>?input=...)
@@ -68,6 +74,15 @@ saem como texto no comentário. `cycles.*` só com escopo `cycles:read`.
 
 - **IDs numa chamada só:** `projects.getById` devolve `teamId`, `workspaceId`,
   `issueTypes` e `workflowStatuses`. Não garimpe teamId de issue.
+- **`type` omitido NÃO fica em branco: vira `bug`.** É silencioso — a issue nasce
+  errada e ninguém percebe até alguém olhar o board. Aconteceu de verdade: oito
+  issues seguidas criadas como `bug` por omissão, e outras três tiveram que ser
+  convertidas depois. **Sempre mande `type` explícito** no `issues.create`.
+- **`labelIds` e `assigneeId` não são graváveis por API.** A issue nasce sem dono
+  e sem label; labels sugeridas vão como texto no comentário, e a atribuição é
+  feita por alguém na interface.
+- **Anexo**: `issues.getAttachmentDownloadUrl '{"id":"<attachmentId>"}'` devolve
+  URL assinada que **expira em ~10 min** — baixe na hora, não guarde o link.
 - **`type` é validado contra o WORKSPACE, não o projeto** — o `issueTypes` do projeto
   pode omitir `epic`/`story`. Descubra a lista real com uma sonda que falha por
   definição: `tuple-api "$P" post issues.update '{"id":"<qualquer>","type":"__probe__"}'`

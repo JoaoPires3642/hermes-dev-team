@@ -20,6 +20,7 @@ platform_toolsets:
     - todo
     - cronjob
     - file
+    - terminal
   telegram:
     - clarify
     - memory
@@ -28,3 +29,4 @@ platform_toolsets:
     - todo
     - cronjob
     - file
+    - terminal

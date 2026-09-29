@@ -26,7 +26,10 @@ BOTS = {
         "model": "claude-opus-5", "provider": "anthropic",  # le entrada externa nao confiavel: precisa julgar injecao e nao inventar cliente
         "desc": "Recebe as entradas (notas de call da Meetily, issues marcadas no TUPLE, artefatos/PBIs), resume, propõe issues, pede o GATE 1 e distribui o trabalho por @menção.",
         "pet": "octopus",
-        "toolsets": BASE_TOOLS + ["cronjob", "file"],
+        # terminal: sem ele não roda tuple-api nem hermes-task, e o desenho exige os dois
+        # (GATE 1, criar issue, registrar aprovação). É o bot que ingere transcrição de
+        # cliente, então o que limita o estrago são as regras do próprio git-bot/hermes-task.
+        "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
         # só ele lê entrada externa bruta, então só ele precisa saber ler ASR
         "extra_skills": ["transcricao-crua"],
         "kiro_tools": ["read", "write", "shell"],
@@ -43,7 +46,7 @@ BOTS = {
         "model": "claude-sonnet-5-5", "provider": "anthropic",  # dor -> user story: escrita estruturada sobre contexto ja limpo
         "desc": "Product Owner: transforma dores do cliente em user stories com critérios de aceite no padrão BMAD e mantém PRD/épicos em docs/.",
         "pet": "peri-the-owl",
-        "toolsets": BASE_TOOLS + ["file"],
+        "toolsets": BASE_TOOLS + ["file", "terminal"],
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [
@@ -55,7 +58,7 @@ BOTS = {
         "model": "claude-haiku-4-5", "provider": "anthropic",  # le board e lista o que travou: quase mecanico, roda todo dia
         "desc": "Project Manager: prazos, cycles e impedimentos; routine diária varre o TUPLE, cobra BLOCKED e avisa o humano.",
         "pet": "capybara-lulu",
-        "toolsets": BASE_TOOLS + ["cronjob"],
+        "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
         "kiro_tools": ["read", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [{"capability": "shell", "match": [TUPLE_CURL, TASK], "effect": "allow"}],
@@ -65,9 +68,11 @@ BOTS = {
         "code_graph": True,
         "desc": "Tech Lead: escreve a story BMAD técnica com DoR, quebra em tasks no TUPLE, pede o GATE 2 e gera o .kiro/specs para os devs.",
         "pet": "pipe-wrench-robot",
-        "toolsets": BASE_TOOLS + ["file"],
+        "toolsets": BASE_TOOLS + ["file", "terminal"],
         "kiro_tools": ["read", "write", "shell"],
-        "kiro_allowed": ["read"],
+        # precisa de write (.kiro/specs) e shell (tuple-api, hermes-task). Com allowed=read
+        # o Kiro pede aprovação interativa que ninguém dá numa sessão ACP: o bot trava.
+        "kiro_allowed": ["read", "write", "shell", "@codebase-memory-mcp"],
         "kiro_rules": [
             {"capability": "fs_write", "match": ["docs/**", ".kiro/**", ".hermes/tasks/**"], "effect": "allow"},
             {"capability": "shell", "match": [TUPLE_CURL, TASK, "git log*", "git diff*", "git status*", "git show*"], "effect": "allow"},
