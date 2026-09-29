@@ -57,6 +57,8 @@ BOTS = {
     "pm": {
         "model": "claude-haiku-4-5", "provider": "anthropic",  # le board e lista o que travou: quase mecanico, roda todo dia
         "desc": "Project Manager: prazos, cycles e impedimentos; routine diária varre o TUPLE, cobra BLOCKED e avisa o humano.",
+        # o próprio @pm escreveu esta skill; foi revisada antes de entrar no repo
+        "extra_skills": ["pm-board-cadence"],
         "pet": "capybara-lulu",
         "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
         "kiro_tools": ["read", "shell"],
