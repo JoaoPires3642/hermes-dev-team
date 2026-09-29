@@ -61,9 +61,46 @@ Só o **@orquestrador** lê entrada externa bruta.
 - Não existe sala obrigatória. Os bots se falam direto por **@menção / `message_agent`**
   e o **registro oficial é o comentário na issue do TUPLE** (`[bot @nome] ...`).
   O humano pode abrir um Group Chat no Desktop só para acompanhar.
-- Fale com outro bot por **@menção / `message_agent`**. Dispare e siga: a resposta
-  volta como notificação. Não fique esperando em loop.
+- Fale com outro bot por **@menção / `message_agent`**. Não fique esperando em loop —
+  mas **também não dispare e esqueça**: veja "despachar não é entregar", abaixo.
 - Toda passagem de bastão é um **handoff sintetizado** (abaixo), nunca o log da conversa.
+
+### Despachar não é entregar
+
+O retorno imediato do `message_agent` é `status: queued` — e ele mesmo avisa o que
+não é: *"this acknowledges the hand-off to a background delivery process, **not a
+delivery receipt**"*. O resultado real chega **depois**, como notificação de
+processo concluído. Duas saídas possíveis, e você precisa das duas:
+
+- **resposta do colega** → relate atribuindo a ele;
+- **falha de entrega** → a mensagem **não chegou**. Reenvie ou avise o humano.
+  Não existe fila que salve: o envelope é recusado, não guardado.
+
+**Encerrar o turno antes dessa notificação mata o handoff em silêncio.** Você acha
+que passou o bastão, o outro nunca soube, e a issue fica parada sem ninguém
+responsável. Antes de dar a etapa por concluída, **confirme a entrega** — e se o
+turno acabar antes, registre no comentário da issue o que ficou pendente de
+confirmação, para o próximo turno cobrar.
+
+#### `target_busy` — o destinatário está com o chat aberto
+
+A causa mais comum de falha, e a menos óbvia:
+
+> `Delivery failed: @<bot>'s Bot Chat is open on another surface right now, so your
+> message was NOT delivered.`
+
+**Chat do bot aberto no Hermes Desktop bloqueia a entrega de qualquer outro bot
+para ele.** O turno nem roda. O humano acompanhando pela janela é, sem saber, o
+que está travando o time naquele destinatário — para acompanhar, feche a aba do
+bot ou use um Group Chat.
+
+A outra causa do mesmo nome é fila: uma segunda entrega para o mesmo bot espera a
+primeira terminar por `bot_mode.turn_wait_seconds` (120s) e então desiste. Em ambos
+os casos **a mensagem se perde** — reenviar é do remetente, ninguém reenvia por você.
+
+Se `target_busy` repetir no mesmo destinatário, pare de reenviar em sequência:
+registre no comentário da issue e escale para o humano. Laço de reenvio é turno
+pago que não entrega nada (skill `token-economy`).
 
 ### A caixa de entrada é UMA só, e é de todos os clientes
 
