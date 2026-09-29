@@ -13,15 +13,16 @@
 - Onde tirar dúvida técnica:
 
 ## TUPLE
+
+Chave e IDs ficam em `.hermes/tuple.env` — **não repita aqui**. Duplicar dá
+divergência: alguém atualiza um lado e o bot lê o outro. Só dois campos são
+obrigatórios lá (`TUPLE_API_KEY` e `TUPLE_WORKSPACE_ID`); `projectId` e `teamId`
+o bot descobre com `projects.list`.
+
 | Campo | Valor |
 |---|---|
-| workspace slug | |
-| workspaceId | |
-| projectId | |
-| teamId | |
-| Prefixo das issues | |
-| assigneeId do João | |
-| Chave | `.hermes/tuple.env` (escopo neste projeto) |
+| workspace slug (só para humano achar a URL) | |
+| assigneeId do João (issue criada por API nasce sem dono) | |
 | Como marcar issue para os bots | (ex.: comentário `@bots` ou prioridade/coluna combinada) |
 
 ## Repositórios (em `repos/`)

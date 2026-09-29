@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # tuple-api — chama a API tRPC do Tuple com a chave DO PROJETO, sem expor a chave.
 #
+#   tuple-api <pasta-do-projeto> contexto                          (IDs, sem a chave)
 #   tuple-api <pasta-do-projeto> get  <procedure> '<json-input>'
 #   tuple-api <pasta-do-projeto> post <procedure> '<json-body>'
 #   tuple-api <pasta-do-projeto> post <procedure> @payload.json   (corpo de arquivo)
+#
+# `contexto` existe porque o bot precisa do workspaceId mas NÃO pode ler o tuple.env:
+# a chave mora no mesmo arquivo. Ele devolve workspaceId/projectId/teamId/prefixo em
+# JSON, resolvendo projectId e teamId por projects.list — e nunca imprime a chave.
 #
 # A chave vem de <pasta-do-projeto>/.hermes/tuple.env (TUPLE_API_KEY=...), chmod 600.
 # Cada projeto tem a sua. Ex.:
@@ -11,14 +16,55 @@
 
 set -euo pipefail
 
-[[ $# -ge 3 ]] || { sed -n '2,10p' "$0" >&2; exit 2; }
-dir=${1%/} method=$2 proc=$3 json=${4:-'{}'}
+[[ $# -ge 2 ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
+dir=${1%/} method=$2 proc=${3:-} json=${4:-'{}'}
+[[ "$method" == "contexto" || $# -ge 3 ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
 
 [[ -f "$dir/AGENTS.md" ]] || { echo "tuple-api: $dir não parece uma pasta de projeto (sem AGENTS.md)" >&2; exit 2; }
 envf="$dir/.hermes/tuple.env"
 [[ -r "$envf" ]] || { echo "tuple-api: $envf não encontrado" >&2; exit 2; }
 key=$(sed -n 's/^TUPLE_API_KEY=//p' "$envf" | tail -1)
 [[ -n "$key" ]] || { echo "tuple-api: TUPLE_API_KEY vazio em $envf" >&2; exit 2; }
+ler() { sed -n "s/^$1=//p" "$envf" | tail -1; }
+ws=$(ler TUPLE_WORKSPACE_ID)
+base=${TUPLE_API_BASE:-$(ler TUPLE_API_BASE)}
+base=${base:-https://api.tuple.hypesoft.com.br}
+
+if [[ "$method" == "contexto" ]]; then
+  [[ -n "$ws" ]] || { echo "tuple-api: TUPLE_WORKSPACE_ID vazio em $envf (não é descobrível pela API)" >&2; exit 2; }
+  quero=$(ler TUPLE_PROJECT)
+  lista=$(printf 'header = "Authorization: Bearer %s"\n' "$key" \
+    | curl -sS -K - -G "$base/trpc/projects.list" --data-urlencode "input={\"workspaceId\":\"$ws\"}")
+  WS="$ws" QUERO="$quero" PREFIXO="$(ler TUPLE_PREFIXO)" python -c '
+import json, os, sys
+bruto = sys.stdin.read()
+try:
+    d = json.loads(bruto)
+except ValueError:
+    sys.exit("tuple-api: resposta não-JSON de projects.list")
+if "error" in d:
+    sys.exit("tuple-api: projects.list falhou: " + str(d["error"].get("message"))[:120])
+r = d.get("result", {}).get("data", d)
+projetos = r if isinstance(r, list) else (r.get("items") or r.get("projects") or [])
+quero = (os.environ.get("QUERO") or "").strip()
+if quero:
+    achados = [p for p in projetos if quero in (p.get("id",""), p.get("name",""))]
+elif len(projetos) == 1:
+    achados = projetos
+else:
+    sys.exit("tuple-api: o workspace tem %d projetos; defina TUPLE_PROJECT (nome ou id): %s"
+             % (len(projetos), ", ".join(p.get("name","?") for p in projetos)))
+if not achados:
+    sys.exit("tuple-api: TUPLE_PROJECT=%r não bate com nenhum projeto: %s"
+             % (quero, ", ".join(p.get("name","?") for p in projetos)))
+p = achados[0]
+print(json.dumps({"workspaceId": os.environ["WS"], "projectId": p.get("id"),
+                  "teamId": p.get("teamId"), "projeto": p.get("name"),
+                  "prefixo": os.environ.get("PREFIXO") or None}, ensure_ascii=False))
+' <<<"$lista"
+  exit $?
+fi
+
 [[ "$proc" =~ ^[a-zA-Z]+\.[a-zA-Z]+$ ]] || { echo "tuple-api: procedure inválida: $proc" >&2; exit 2; }
 
 if [[ "$json" == @* ]]; then
@@ -26,7 +72,7 @@ if [[ "$json" == @* ]]; then
   json=$(cat "$f")
 fi
 
-base=${TUPLE_API_BASE:-https://api.tuple.hypesoft.com.br}   # dev: https://api-dev.tuple.hypesoft.com.br
+# base já resolvido acima (env > tuple.env > produção)
 # header de auth vai por stdin (curl -K -): a chave não aparece em argv/ps
 auth() { printf 'header = "Authorization: Bearer %s"\n' "$key"; }
 

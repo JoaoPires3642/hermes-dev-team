@@ -27,14 +27,34 @@ fica só na conversa.
 
 ## Identificadores do projeto
 
-`TUPLE_WORKSPACE_ID`, `TUPLE_PROJECT_ID`, `TUPLE_TEAM_ID` e `TUPLE_PREFIXO` ficam
-no **`.hermes/tuple.env`** da pasta do projeto, ao lado da chave — não no
-`AGENTS.md`. O `AGENTS.md` é tabela preenchida à mão: célula vazia ou reformatada
-quebra o parse, e **copiar o `workspaceId` do projeto errado escreve no board de
-outro cliente**. Faltou algum → pergunte, não chute.
+Ficam no **`.hermes/tuple.env`** da pasta do projeto, ao lado da chave — não no
+`AGENTS.md`, que é tabela preenchida à mão e cujo parse quebra calado.
 
-Anote no `tuple.env` **a data em que validou os IDs**. Eles mudam se o projeto for
-recriado, e o sintoma é `403` em chamada que antes funcionava.
+**Só dois são obrigatórios**, porque só eles não são descobríveis:
+
+| campo | por quê |
+|---|---|
+| `TUPLE_API_KEY` | óbvio |
+| `TUPLE_WORKSPACE_ID` | com a chave sozinha, `workspaces.list` e `users.me` dão **403** (`API keys cannot access this resource`), e todo o resto exige `workspaceId` na entrada |
+| `TUPLE_PROJECT` | opcional: nome ou id. Necessário quando o workspace tem mais de um projeto — e normalmente tem |
+
+**`projectId` e `teamId` você NÃO guarda** — e **não leia o `tuple.env`**: a chave
+mora nele. Peça o contexto, que resolve os IDs e nunca imprime a chave:
+
+```bash
+tuple-api "$P" contexto
+# {"workspaceId":"...","projectId":"...","teamId":"...","projeto":"Ouvidoria","prefixo":"OUVI"}
+```
+
+Use esses valores nas chamadas seguintes. Erros dele são instrutivos: se o
+workspace tiver mais de um projeto e `TUPLE_PROJECT` estiver vazio, ele **lista
+os projetos disponíveis** em vez de escolher por você.
+
+Guardar menos evita o erro caro: colar o `projectId` de um cliente no `tuple.env`
+de outro **escreve no board errado**, e ninguém percebe na hora.
+
+Anote no `tuple.env` **a data em que validou o `workspaceId`**. Ele muda se o
+workspace for recriado, e o sintoma é `403` em chamada que antes funcionava.
 
 Para descobrir o ID de uma pessoa: ler o objeto `assignee` de uma issue que ela
 já tenha (`members.*` é inacessível pela API).
