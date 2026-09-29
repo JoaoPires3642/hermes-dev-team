@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""gateway-heartbeat — avisa no Telegram quando o gateway do Hermes para.
+
+O gateway já ficou um dia inteiro fora sem ninguém perceber: as routines não
+rodaram, o Telegram não respondeu, e o único sinal era um log que ninguém lê.
+
+Por que este script fala DIRETO com a API do Telegram, sem passar pelo Hermes:
+o gateway É a conexão com o Telegram. Pedir para o bot avisar que o bot caiu
+não funciona. Aqui o alerta sai por HTTPS puro — mesmo bot, mesmo chat, mas por
+um caminho que sobrevive ao gateway morto.
+
+  gateway-heartbeat                 # verifica e avisa se mudou de estado
+  gateway-heartbeat --reiniciar     # tenta subir de volta antes de alertar
+  gateway-heartbeat --estado        # só mostra o diagnóstico, não envia nada
+
+Sinal usado: <profile>/cron/ticker_heartbeat, que o ticker reescreve a cada ~60s
+com "<epoch> <pid>". Parado além do limite = gateway travado ou morto.
+
+Só avisa na MUDANÇA de estado (caiu / voltou), nunca a cada verificação — senão
+vira ruído e você para de ler.
+
+Saída: 0 gateway ok · 1 gateway fora · 2 erro de uso/configuração
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+LIMITE_PADRAO = 300  # 5 min: o ticker bate a cada ~60s, então 5 min é folga real
+ESTADO = ".gateway-heartbeat.json"
+
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
+
+def hermes_home():
+    h = os.getenv("HERMES_HOME")
+    if h:
+        return Path(h)
+    if sys.platform == "win32":
+        return Path(os.getenv("LOCALAPPDATA", "")) / "hermes"
+    return Path.home() / ".hermes"
+
+
+def erro(msg):
+    print("\033[1;31m[erro]\033[0m " + msg, file=sys.stderr)
+    sys.exit(2)
+
+
+def ler_batida(raiz):
+    """Batida mais recente entre todos os profiles: (epoch, pid) ou (None, None)."""
+    melhor = (None, None)
+    for f in (raiz / "profiles").glob("*/cron/ticker_heartbeat"):
+        try:
+            partes = f.read_text(encoding="utf-8").split()
+            quando = float(partes[0])
+            pid = int(partes[1]) if len(partes) > 1 else None
+        except (OSError, ValueError, IndexError):
+            continue
+        if melhor[0] is None or quando > melhor[0]:
+            melhor = (quando, pid)
+    return melhor
+
+
+def processo_vivo(pid):
+    if not pid:
+        return False
+    if sys.platform == "win32":
+        try:
+            saida = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
+                                   capture_output=True, text=True, timeout=30).stdout
+            return str(pid) in saida
+        except (OSError, subprocess.SubprocessError):
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def diagnosticar(raiz, limite):
+    quando, pid = ler_batida(raiz)
+    if quando is None:
+        return False, "nenhuma batida encontrada (o gateway já rodou nesta máquina?)"
+    idade = time.time() - quando
+    vivo = processo_vivo(pid)
+    if idade > limite and not vivo:
+        return False, "processo %s não existe mais; última batida há %d min" % (pid, idade // 60)
+    if idade > limite:
+        return False, "processo %s existe mas travou: sem batida há %d min" % (pid, idade // 60)
+    if not vivo:
+        return False, "batida recente mas o processo %s sumiu (encerrou agora?)" % pid
+    return True, "pid %s, última batida há %ds" % (pid, int(idade))
+
+
+def credenciais(raiz):
+    """Token e chat do profile do @orquestrador. O valor nunca é impresso."""
+    env = raiz / "profiles" / "orquestrador" / ".env"
+    token = None
+    try:
+        for linha in env.read_text(encoding="utf-8").splitlines():
+            if linha.startswith("TELEGRAM_BOT_TOKEN="):
+                token = linha.split("=", 1)[1].strip().strip("\"'")
+    except OSError:
+        pass
+
+    chat = os.getenv("HERMES_ALERTA_CHAT_ID")
+    if not chat:
+        # a sessão do DM guarda o chat: agent:<bot>:telegram:dm:<chat_id>
+        try:
+            d = json.loads((raiz / "sessions" / "sessions.json").read_text(encoding="utf-8"))
+            for chave in d:
+                if ":telegram:dm:" in chave:
+                    chat = chave.rsplit(":", 1)[1]
+                    break
+        except (OSError, ValueError):
+            pass
+    return token, chat
+
+
+def avisar(token, chat, texto):
+    if not token or not chat:
+        return False, "sem token ou chat_id (defina HERMES_ALERTA_CHAT_ID se precisar)"
+    url = "https://api.telegram.org/bot%s/sendMessage" % token
+    dados = urllib.parse.urlencode({"chat_id": chat, "text": texto}).encode()
+    try:
+        with urllib.request.urlopen(url, data=dados, timeout=30) as r:
+            return json.loads(r.read()).get("ok", False), "enviado"
+    except Exception as exc:  # rede, HTTP, JSON — o alerta nunca derruba o monitor
+        return False, "falhou: %s" % type(exc).__name__
+
+
+def tentar_subir(raiz):
+    cmd = raiz / "bin" / ("hermes.cmd" if sys.platform == "win32" else "hermes")
+    if not cmd.exists():
+        return False, "não achei o hermes em %s" % cmd
+    try:
+        p = subprocess.run([str(cmd), "gateway", "start"], capture_output=True,
+                           text=True, timeout=180)
+        return p.returncode == 0, (p.stdout or p.stderr or "").strip()[:200]
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)[:200]
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Avisa no Telegram quando o gateway do Hermes para.")
+    ap.add_argument("--limite", type=int, default=LIMITE_PADRAO,
+                    help="segundos sem batida para considerar fora (padrão: %d)" % LIMITE_PADRAO)
+    ap.add_argument("--reiniciar", action="store_true",
+                    help="tenta subir o gateway antes de alertar")
+    ap.add_argument("--estado", action="store_true",
+                    help="só diagnostica e mostra; não envia nem reinicia")
+    args = ap.parse_args()
+
+    raiz = hermes_home()
+    if not raiz.is_dir():
+        erro("HERMES_HOME não encontrado: %s" % raiz)
+
+    ok, detalhe = diagnosticar(raiz, args.limite)
+
+    if args.estado:
+        print(("gateway OK — " if ok else "gateway FORA — ") + detalhe)
+        sys.exit(0 if ok else 1)
+
+    marca = raiz / ESTADO
+    try:
+        anterior = json.loads(marca.read_text(encoding="utf-8")).get("ok")
+    except (OSError, ValueError):
+        anterior = None
+
+    recuperado = ""
+    if not ok and args.reiniciar:
+        subiu, saida = tentar_subir(raiz)
+        recuperado = ("\n\nTentei reiniciar: " +
+                      ("subiu — " if subiu else "não subiu — ") + saida)
+        if subiu:
+            time.sleep(20)
+            ok, detalhe = diagnosticar(raiz, args.limite)
+
+    # só fala quando o estado MUDA: alerta repetido a cada 5 min vira ruído
+    if anterior is not None and anterior == ok:
+        print(("ok" if ok else "fora") + " (sem mudança) — " + detalhe)
+    else:
+        token, chat = credenciais(raiz)
+        if ok and anterior is False:
+            texto = "✅ Gateway do Hermes voltou.\n\n" + detalhe
+        elif not ok:
+            texto = ("🔴 Gateway do Hermes parou.\n\n" + detalhe +
+                     "\n\nEnquanto estiver fora: as routines não rodam e eu não "
+                     "respondo por aqui." + recuperado)
+        else:
+            texto = None  # primeira execução com tudo ok: não precisa avisar
+        if texto:
+            enviado, como = avisar(token, chat, texto)
+            print(("avisado" if enviado else "NÃO avisei (%s)" % como) + " — " + detalhe)
+        else:
+            print("ok (primeira verificação) — " + detalhe)
+
+    try:
+        marca.write_text(json.dumps({"ok": ok, "detalhe": detalhe,
+                                     "em": time.strftime("%Y-%m-%dT%H:%M:%S")},
+                                    ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+    sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":
+    main()

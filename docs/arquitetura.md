@@ -3,32 +3,43 @@
 > Diagrama visual: salvar o Excalidraw como `docs/arquitetura.excalidraw`.
 
 ## 1. Entradas
-- **Call** → **Meetily** (open source, MIT, transcrição 100% local com Whisper) → `meetily-notes`
-  lê o SQLite dela e exporta uma nota Markdown por call em `~/Documentos/_calls/<cliente>/`.
-  Routine do @orquestrador roda o exportador e lê as notas novas. O cliente/projeto vem do
-  título da call, por convenção `[Cliente] Assunto`; sem prefixo a nota cai em `_sem-cliente/`
-  e o bot pergunta.
-  > Saímos do Granola MCP: o MCP dele é pago. A Meetily não tem API nem MCP oficial e o export
-  > de Markdown é feature PRO, então `meetily-notes` lê o SQLite local direto — o que é rápido
-  > e gratuito, mas **não é contrato público**: uma mudança de schema dela quebra a ponte.
-  > O schema esperado está documentado no cabeçalho do `bin/meetily-notes`.
+- **Call** → **OpenWhispr** (open source, MIT): transcreve e separa quem falou **localmente**,
+  sem bot entrar na reunião. O `openwhispr-notes` lê o SQLite dele e escreve uma nota Markdown
+  por call em `~/Documents/_calls/<cliente>/`. Cliente = **pasta da reunião no app** (crie uma por
+  cliente); sem isso, o prefixo `[Cliente]` do título; sem nenhum dos dois cai em `_sem-cliente/`
+  e o bot pergunta de quem é — nunca deduz pelo conteúdo.
+  > **Por evento, não por horário.** O exportador roda de 15 em 15 min (custo zero, é só Python
+  > lendo SQLite) e **só acorda o @orquestrador quando criou nota**, via `--ao-criar`. Sem isso a
+  > routine reprocessava as mesmas notas a cada ciclo — e o bot chegou a tentar desligar a
+  > própria routine, com razão. Quem sabe o que é novo é o exportador, não o bot.
+  > **A API e o MCP do OpenWhispr são em nuvem e pedem plano pago**; não são usados. Ler o SQLite
+  > é grátis e local, mas **não é contrato público**: mudança de schema dele quebra a ponte
+  > (foi o que aconteceu com o `transcript`, que é JSON de segmentos e não texto).
+  > Saímos do Granola (MCP pago) e depois da Meetily (diarização e export de Markdown são PRO).
 - **Issue marcada no TUPLE** (bug, pedido, PBI existente) → routine do @orquestrador.
 - **Artefatos / PBIs** enviados pelo humano no Telegram/Desktop.
 
 ## 2. Hermes — Bot Mode
 - Bot = profile persistente (SOUL, memória, skills, routines). Bot ≠ subagente.
+- **Cérebro por bot**: @orquestrador (`claude-opus-5`), @po (`claude-sonnet-5-5`) e @pm
+  (`claude-haiku-4-5`) vão direto no Claude; @techlead, @dev-front, @dev-back e @qa ficam no
+  `kiro-cli`, que é a conta da empresa e onde vivem os agentes Kiro e o grafo do código.
+  O @orquestrador é o único que lê entrada externa não confiável, então é o que menos se
+  economiza; o @pm faz trabalho quase mecânico todo dia útil, então é o mais barato.
 - **@orquestrador** recebe tudo e resume → **GATE 1** (aprovação humana do resumo e
   das issues propostas) → cria issues no TUPLE e chama os bots por @menção.
-- Bots conversam por **@menção / message_agent** (dispara e segue; resposta volta como
-  notificação). **Sem sala obrigatória**: o registro fica nos comentários da issue no
-  TUPLE; Group Chat no Desktop é opcional, só para o humano acompanhar.
+- Bots conversam por **@menção / message_agent** — ⚠️ **não está funcionando hoje**. O Hermes
+  injeta o `message_agent` só na sessão canônica "Bot Chat" e só em profile reconhecido como
+  Bot Mode, o que exige um `profile.yaml` com a chave `hermes-bots` — criado pela aba Bots do
+  Desktop, não pelo `hermes profile install`. Hoje só o @dev-back tem. Ou seja, a ideia de
+  **"sem sala obrigatória" não se sustenta**: a sala é o único lugar onde a ferramenta existe.
 - **@techlead** escreve a story BMAD (DoR) → **GATE 2** (aprovação humana) → gera
   `.kiro/specs` e libera @dev-front / @dev-back.
 - **@pm** routine diária no TUPLE.
 - **Handoff sintetizado**: cada passagem de bastão é um artefato curto em
   `<projeto>/.hermes/handoffs/<KEY>/` (contrato, arquivos, CAs, pendências) — nunca o log inteiro.
-- Skills: `fluxo-time`, `kanban-tuple`, `git-workflow`, `bmad-story` (globais) +
-  steering do cliente (arquitetura, segurança).
+- Skills: `fluxo-time`, `kanban-tuple`, `git-workflow`, `bmad-story` (globais), `transcricao-crua`
+  (só @orquestrador: ASR bruto, marcar incerteza, separar decisão de hipótese) + steering do cliente.
 - Chave do TUPLE por projeto (`.hermes/tuple.env`), usada só via `tuple-api`; nada em skill/SOUL/profile.
 
 ## 3. TUPLE — fonte da verdade
@@ -40,7 +51,8 @@
 - `~/Documentos/<Projeto>/` (pasta, não repo): `AGENTS.md`, `.hermes/tuple.env` (chave do
   TUPLE do projeto), docs BMAD, `.kiro/` (steering + specs) e os repos clonados.
 - Provider **kiro-acp**: cada turno de bot = sessão `kiro-cli acp --agent hermes-<bot>`.
-- **kiro-pool**: máx. 4 sessões simultâneas (bots trabalham por notificação; fila só se lotar).
+- **kiro-pool**: máx. 4 sessões simultâneas — ⚠️ **não portado para Windows** (depende de `flock`).
+  Nesta máquina não há teto de concorrência.
 - Loop: FRONT/BACK → TESTES (@qa) → falhou volta ao dev (**circuit breaker: máx. 3 voltas;
   na 3ª falha para, `BLOCKED` + alerta no Telegram + humano decide**) → passou → PR na branch do time
   (`pull --rebase`, sem `--force`) → **GATE 3** (code review humano + merge).
@@ -53,8 +65,14 @@
   SPEC_APPROVED → IMPLEMENTING → TESTING ⇄ CHANGES_REQUESTED → AWAITING_REVIEW → MERGED → DEPLOYED/HOMOLOGATING → CLOSED`
   (+ BLOCKED), fiscalizada pelo `hermes-task`: quem move, evidência exigida, DoD, circuit breaker.
 - **Contrato de API** (`contrato.yaml`) antes de front e back em paralelo.
-- **Políticas fora do prompt**: permissões dos agentes Kiro (sem deploy, sem push em main, sem fingir humano),
-  toolsets do Hermes, escopo travado após GATE 2.
+- **Políticas fora do prompt**: toolsets do Hermes, escopo travado após GATE 2 e o `git-bot`
+  (recusa `--force`, `--no-verify`, `reset --hard`, push em main e commit de segredo; faz
+  `pull --rebase` antes de todo push e devolve BLOCKED em conflito).
+- ⚠️ **As permissões dos agentes Kiro NÃO estão sendo aplicadas.** Elas só valem na engine v3,
+  e o `acp` do kiro-cli 2.25.0 recusa `--agent` junto com `--agent-engine v3` — as duas são
+  mutuamente exclusivas. Em v2 o bloco `permissions` é ignorado **em silêncio**. Verificado com
+  agente descartável: regra de negação não bloqueou. Até o Kiro ligar as duas coisas, o que
+  segura de fato é o `git-bot`, o `hermes-task`, branch protection no remote e token mínimo.
 - **Auditoria**: `audit.jsonl` por projeto + sessões kiro-cli no `kiro-pool`.
 - **Branch**: estratégia por projeto no `AGENTS.md` (`por-tarefa` | `compartilhada`).
 
@@ -66,5 +84,14 @@
   alerta no Telegram; GATE 1 antes de qualquer ação.
 - 🛡️ Bots não editam/reatribuem issue de outra pessoa sem OK.
 - ℹ️ Host único: se o PC cair o fluxo pausa; nada se perde (TUPLE + git).
-- ℹ️ Custo: só o kiro-cli (empresa). Meetily Community, Hermes e Telegram são grátis.
-- ⚠️ Meetily: o pacote Windows exige CPU x64 com AVX2. Diarização de quem falou é PRO.
+- ℹ️ Custo: kiro-cli (empresa) + API da Anthropic para os 3 bots de texto. OpenWhispr, Hermes
+  e Telegram são grátis. Credencial no pool do Hermes (`hermes auth add anthropic`), nunca no repo.
+- ⚠️ **Todo áudio gravado vira nota que o @orquestrador lê.** O padrão é exportar; call sensível
+  exige desabilitar a tarefa `hermes-dev-team - openwhispr-notes` **antes** de gravar.
+- ℹ️ Windows: `install-windows.sh` cobre o que o `install.sh` não faz aqui (hermes.cmd,
+  HERMES_HOME em `%LOCALAPPDATA%`, wrappers dos scripts Python). `~/Documents`, não `~/Documentos`.
+- ℹ️ Gateway: um por máquina (`hermes gateway install`, sem `-p`), serve os 7 profiles. Sobe no
+  login e o `gateway-heartbeat` avisa no Telegram se parar — falando direto com a API do
+  Telegram, porque o gateway é justamente o que cairia.
+- ℹ️ Entrega de routine: use `telegram:<chat_id>`. O alvo genérico `telegram` não resolve
+  (o diretório de canais fica vazio) e falha sem alarde.
