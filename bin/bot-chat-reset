@@ -27,10 +27,12 @@ import argparse
 import os
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 TITULO = "Bot Chat"          # tools/bot_mode_probe.py: BOT_CHAT_TITLE
 OK, ERRO, USO = 0, 1, 2
+JANELA_VIVA = 300      # segundos desde a ultima atividade que ainda contam como 'aberta'
 
 
 def raiz_hermes() -> Path:
@@ -65,18 +67,37 @@ def conectar(db: Path, escrita: bool) -> sqlite3.Connection:
 
 
 def caixa(raiz: Path, bot: str):
-    """(id, mensagens, chamadas, tokens_lidos) da Bot Chat, ou None."""
+    """(id, mensagens, chamadas, tokens_lidos, segundos_desde_a_ultima_atividade)."""
     db = raiz / "profiles" / bot / "state.db"
     if not db.is_file():
         return None
     con = conectar(db, escrita=False)
     try:
         linha = con.execute(
-            "select id, message_count, api_call_count, cache_read_tokens "
+            "select id, message_count, api_call_count, cache_read_tokens, last_activity_at "
             "from sessions where trim(title)=?", (TITULO,)).fetchone()
     finally:
         con.close()
-    return linha
+    if linha is None:
+        return None
+    sid, m, a, t, visto = linha
+    try:
+        idade = time.time() - float(visto) if visto else None
+    except (TypeError, ValueError):
+        idade = None
+    return (sid, m, a, t, idade)
+
+
+def viva(idade) -> bool:
+    """A sessao esta aberta em algum lugar agora?
+
+    Apagar a linha de uma sessao VIVA nao a mata: o gateway a mantem em memoria e
+    a reescreve no banco no turno seguinte, com o contexto inteiro. Foi o que
+    aconteceu com a Bot Chat do @orquestrador -- o reset rodou, a linha sumiu, e
+    minutos depois ela estava de volta com 27 mensagens e 1,9M de token lido.
+    Pior que nao funcionar: parece que funcionou.
+    """
+    return idade is not None and idade < JANELA_VIVA
 
 
 def apagar(raiz: Path, bot: str, sid: str) -> None:
@@ -107,6 +128,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--todos", action="store_true", help="todos os bots do install")
     ap.add_argument("--listar", action="store_true", help="so mostra o peso de cada caixa")
     ap.add_argument("--sim", action="store_true", help="nao pergunta")
+    ap.add_argument("--forcar", action="store_true",
+                    help="apaga mesmo se a sessao estiver aberta (o gateway vai reescrever)")
     a = ap.parse_args(argv)
 
     raiz = raiz_hermes()
@@ -117,13 +140,16 @@ def main(argv: list[str]) -> int:
     todos = bots(raiz)
 
     if a.listar or (not a.bots and not a.todos):
-        print("%-16s %-24s %8s %8s %12s" % ("bot", "sessao", "msgs", "calls", "tok lidos"))
+        print("%-16s %-24s %8s %8s %12s  %s"
+              % ("bot", "sessao", "msgs", "calls", "tok lidos", "estado"))
         for b in todos:
             c = caixa(raiz, b)
             if c is None:
                 print("%-16s %s" % (b, "(sem Bot Chat)"))
             else:
-                print("%-16s %-24s %8s %8s %12s" % (b, c[0], c[1], c[2], c[3]))
+                estado = "ABERTA agora" if viva(c[4]) else "parada"
+                print("%-16s %-24s %8s %8s %12s  %s"
+                      % (b, c[0], c[1], c[2], c[3], estado))
         if not a.listar:
             print("\nNada apagado. Use: bot-chat-reset <bot> [...] | --todos", file=sys.stderr)
             return USO
@@ -136,15 +162,29 @@ def main(argv: list[str]) -> int:
               % (", ".join(desconhecidos), ", ".join(todos)), file=sys.stderr)
         return USO
 
-    pendentes = []
+    pendentes, abertas = [], []
     for b in alvos:
         c = caixa(raiz, b)
         if c is None:
             print("@%s: sem Bot Chat, nada a fazer" % b)
+        elif viva(c[4]) and not a.forcar:
+            abertas.append((b, c))
         else:
             pendentes.append((b, c))
+
+    if abertas:
+        print("\nNAO vou apagar estas: a sessao esta ABERTA agora.", file=sys.stderr)
+        for b, c in abertas:
+            print("  @%-14s %s  (ativa ha %.0fs)" % (b, c[0], c[4]), file=sys.stderr)
+        print("\nApagar a linha de uma sessao viva nao a mata: o gateway a mantem em",
+              file=sys.stderr)
+        print("memoria e reescreve tudo de volta no turno seguinte. Feche o chat do bot",
+              file=sys.stderr)
+        print("no Hermes (ou `hermes gateway stop`) e repita. `--forcar` ignora isto.",
+              file=sys.stderr)
+
     if not pendentes:
-        return OK
+        return ERRO if abertas else OK
 
     print("\nVai apagar a caixa de entrada de:")
     for b, c in pendentes:
@@ -174,7 +214,7 @@ def main(argv: list[str]) -> int:
             print("Cancelado.")
             return USO
 
-    saida = OK
+    saida = ERRO if abertas else OK   # recusa parcial nao pode sair 0
     for b, c in pendentes:
         try:
             apagar(raiz, b, c[0])
