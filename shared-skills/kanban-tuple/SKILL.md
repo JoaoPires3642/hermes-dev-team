@@ -50,6 +50,11 @@ Use esses valores nas chamadas seguintes. Erros dele são instrutivos: se o
 workspace tiver mais de um projeto e `TUPLE_PROJECT` estiver vazio, ele **lista
 os projetos disponíveis** em vez de escolher por você.
 
+Para o panorama, não peça `contexto`: `tuple-api "$P" projetos` lista todos os
+projetos do workspace e `tuple-api "$P" board` devolve cada um já paginado e
+somado por status. Em rotina de cron esses dois são a **única** via — lá o
+sandbox recusa `python -c`, heredoc e `execute_code`, e não há `jq` nem `python3`.
+
 Guardar menos evita o erro caro: colar o `projectId` de um cliente no `tuple.env`
 de outro **escreve no board errado**, e ninguém percebe na hora.
 

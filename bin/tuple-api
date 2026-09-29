@@ -3,6 +3,7 @@
 #
 #   tuple-api <pasta-do-projeto> contexto                          (IDs de UM projeto)
 #   tuple-api <pasta-do-projeto> projetos                          (TODOS do workspace)
+#   tuple-api <pasta-do-projeto> board                             (resumo pronto, todos)
 #   tuple-api <pasta-do-projeto> get  <procedure> '<json-input>'
 #   tuple-api <pasta-do-projeto> post <procedure> '<json-body>'
 #   tuple-api <pasta-do-projeto> post <procedure> @payload.json   (corpo de arquivo)
@@ -19,7 +20,7 @@ set -euo pipefail
 
 [[ $# -ge 2 ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
 dir=${1%/} method=$2 proc=${3:-} json=${4:-'{}'}
-[[ "$method" == "contexto" || "$method" == "projetos" || $# -ge 3 ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
+[[ "$method" == "contexto" || "$method" == "projetos" || "$method" == "board" || $# -ge 3 ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
 
 [[ -f "$dir/AGENTS.md" ]] || { echo "tuple-api: $dir não parece uma pasta de projeto (sem AGENTS.md)" >&2; exit 2; }
 envf="$dir/.hermes/tuple.env"
@@ -30,6 +31,132 @@ ler() { sed -n "s/^$1=//p" "$envf" | tail -1; }
 ws=$(ler TUPLE_WORKSPACE_ID)
 base=${TUPLE_API_BASE:-$(ler TUPLE_API_BASE)}
 base=${base:-https://api.tuple.hypesoft.com.br}
+
+if [[ "$method" == "board" ]]; then
+  # O resumo inteiro numa chamada so. Existe porque o @pm roda dentro do cron, e
+  # la o sandbox recusa `python -c`, heredoc e execute_code, e nao ha jq nem
+  # python3 -- pedir ao bot que agregue JSON no shell e pedir o que o ambiente
+  # proibe. Entao a conta vem pronta: ele le, nao calcula.
+  [[ -n "$ws" ]] || { echo "tuple-api: TUPLE_WORKSPACE_ID vazio em $envf" >&2; exit 2; }
+  auth_b() { printf 'header = "Authorization: Bearer %s"\n' "$key"; }
+  lista=$(auth_b | curl -sS -K - -G "$base/trpc/projects.list" --data-urlencode "input={\"workspaceId\":\"$ws\"}")
+  ids=$(printf '%s' "$lista" | WS="$ws" python -c '
+import json, sys
+d = json.load(sys.stdin)
+if "error" in d:
+    sys.exit("tuple-api: projects.list falhou: " + str(d["error"].get("message"))[:120])
+r = d.get("result", {}).get("data", d)
+ps = r if isinstance(r, list) else (r.get("items") or r.get("projects") or [])
+for p in ps:
+    print("%s\t%s" % (p.get("id"), p.get("name")))
+') || exit $?
+  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+  # o python daqui e o do Windows: ele le `/tmp/x` como `C:\tmp\x`, que nao existe.
+  # Tudo que for entregue a ele passa por cygpath primeiro.
+  win() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+  # contador de uma pagina, guardado em variavel: o `python -c` recebe o
+  # programa por ambiente, entao nao ha aspa nem barra para o shell comer.
+  CONTA_PAGINA='
+import json, io, os, sys
+try:
+    d = json.load(io.open(os.environ["CONTAR"], encoding="utf-8"))
+except (OSError, ValueError):
+    print(-1); raise SystemExit
+if "error" in d:
+    print(-1); raise SystemExit
+r = d.get("result", {}).get("data", d)
+its = r if isinstance(r, list) else (r.get("items") or r.get("issues") or [])
+print(len(its))
+'
+  # `limit` da API para em 100. Sem paginar, um board de 144 issues vira "100" e a
+  # porcentagem de concluido sai errada — errada para menos, que e o jeito que
+  # ninguem percebe.
+  while IFS=$'\t' read -r pid pnome; do
+    [[ -n "$pid" ]] || continue
+    off=0; pag=0
+    while (( off < 2000 )); do
+      arq="$tmp/$pid.$off.json"
+      auth_b | curl -sS -K - -G "$base/trpc/issues.list" \
+        --data-urlencode "input={\"workspaceId\":\"$ws\",\"projectId\":\"$pid\",\"limit\":100,\"offset\":$off}" \
+        >"$arq" 2>/dev/null || break
+      printf '%s\t%s\t%s\n' "$pid" "$pnome" "$(win "$arq")" >>"$tmp/index.tsv"
+      n=$(CONTAR="$(win "$arq")" python -c "$CONTA_PAGINA" 2>/dev/null) || n=-1
+      (( n < 100 )) && break
+      off=$((off+100)); pag=$((pag+1))
+    done
+  done <<<"$ids"
+  python - "$(win "$tmp/index.tsv")" <<'PYAGG'
+import json, sys, io, datetime
+
+# stdout do Windows e cp1252: sem isto, titulo com acento vira '?' no relatorio
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except AttributeError:
+    pass
+
+PARADO = {"IN_PROGRESS": 3, "IN_REVIEW": 5, "BLOCKED": 0}
+hoje = datetime.datetime.now(datetime.timezone.utc)
+
+def dias(iso):
+    if not iso: return None
+    try:
+        t = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if t.tzinfo is None: t = t.replace(tzinfo=datetime.timezone.utc)
+        return (hoje - t).days
+    except ValueError:
+        return None
+
+# uma linha por PAGINA do index; o projeto so fecha depois de juntar todas
+paginas, ordem, erro = {}, [], {}
+for linha in io.open(sys.argv[1], encoding="utf-8"):
+    pid, nome, arq = linha.rstrip("\n").split("\t")
+    if pid not in paginas:
+        paginas[pid] = []
+        ordem.append((pid, nome))
+    try:
+        d = json.load(io.open(arq, encoding="utf-8"))
+    except (OSError, ValueError):
+        erro.setdefault(pid, "sem resposta da API")
+        continue
+    if "error" in d:
+        erro.setdefault(pid, str(d["error"].get("message"))[:100])
+        continue
+    r = d.get("result", {}).get("data", d)
+    paginas[pid] += r if isinstance(r, list) else (r.get("items") or r.get("issues") or [])
+
+saida = []
+for pid, nome in ordem:
+    its = paginas[pid]
+    if not its and pid in erro:
+        saida.append({"projeto": nome, "indisponivel": erro[pid]})
+        continue
+    vistos, unicas = set(), []
+    for i in its:
+        k = i.get("id") or i.get("key")
+        if k in vistos:
+            continue
+        vistos.add(k)
+        unicas.append(i)
+    its = unicas
+    contagem, atencao = {}, []
+    for i in its:
+        st = i.get("status") or "?"
+        contagem[st] = contagem.get(st, 0) + 1
+        if st in PARADO:
+            n = dias(i.get("updatedAt") or i.get("createdAt"))
+            if n is not None and n >= PARADO[st]:
+                atencao.append({"key": i.get("key"), "titulo": (i.get("title") or "")[:70],
+                                "status": st, "dias": n})
+    atencao.sort(key=lambda a: -a["dias"])
+    total = len(its)
+    feito = contagem.get("DONE", 0)
+    saida.append({"projeto": nome, "total": total,
+                  "concluido_pct": round(100.0 * feito / total) if total else 0,
+                  "por_status": contagem, "atencao": atencao[:15]})
+print(json.dumps({"projetos": saida}, ensure_ascii=False, indent=1))
+PYAGG
+  exit $?
+fi
 
 if [[ "$method" == "projetos" ]]; then
   # TODOS os projetos do workspace, sem exigir escolher um. É o que o @pm usa para

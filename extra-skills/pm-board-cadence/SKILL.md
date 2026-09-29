@@ -1,7 +1,7 @@
 ---
 name: pm-board-cadence
 description: Aplique na rotina diária do @pm. Varre o board do TUPLE, cobra BLOCKED, sinaliza risco de prazo e PROPÕE fechamento — nunca fecha: DONE é o GATE 3, revisão humana. Audiência - @pm.
-version: 1.0.0
+version: 2.0.0
 author: Hermes PM
 license: CC0
 metadata:
@@ -25,27 +25,30 @@ Load this skill when acting as `@pm` and need to:
 
 ## Daily Routine (weekdays, start of day)
 
-### Step 1: Pull current board state
-
-Query `issues.list` for the workspace and project:
+### Step 1 e 2: o board somado, num comando
 
 ```bash
-P="$HERMES_PROJETOS/<Projeto>"
-
-# IDs resolvidos sem tocar na chave
-eval "$(tuple-api "$P" contexto | python -c 'import json,sys;d=json.load(sys.stdin);print("WS=%s; PROJ=%s" % (d["workspaceId"], d["projectId"]))')"
-
-tuple-api "$P" get issues.list "{\"workspaceId\":\"$WS\",\"projectId\":\"$PROJ\",\"limit\":100}" > issues.json
+tuple-api "$HERMES_PROJETOS/<Projeto>" board
 ```
+
+Devolve, para **cada projeto do workspace**, o total, o % concluído, a contagem
+por status e a lista `atencao` (o que está parado além do limite). Já pagina — o
+`limit` da API para em 100, e um board de 144 issues sem paginação vira "100",
+com a porcentagem errada para menos.
+
+Não monte isso à mão. **Na rotina do cron você não tem como**: o sandbox recusa
+`execute_code`, heredoc, `python -c` e `bash -c`, e não existe `jq` nem
+`python3` na máquina. Toda receita que peça para agregar JSON no shell falha ali
+— o `board` existe por causa disso.
 
 **Nunca** faça `. .hermes/tuple.env`: isso carrega a `TUPLE_API_KEY` no seu
 ambiente, e daí ela vaza em qualquer `env`, log ou mensagem de erro. O
 `tuple-api` lê a chave e a passa ao curl por stdin — ela não aparece nem em `ps`.
 
-**Pitfall**: `limit` ≤ 100; acima disso, paginar com `offset` usando o `total`.
-Guarde em arquivo e leia o arquivo; não imprima a resposta inteira.
+Um projeto que responder erro vem como `{"projeto": "...", "indisponivel": "..."}`:
+reporte a linha e siga para o próximo, não insista.
 
-### Step 2: Summarize by status
+### Step 2b: o que olhar na saída
 
 Group issues:
 - **IN_PROGRESS** > 5 days: flag as stalled, check comments for blockers

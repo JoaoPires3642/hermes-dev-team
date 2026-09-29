@@ -7,7 +7,21 @@ chave no ambiente e ela vaza no primeiro `env` ou stack trace.
 
 A convenção completa está na skill `kanban-tuple`; aqui ficam só os comandos.
 
-## Contexto do projeto (sempre o primeiro passo)
+## O board somado (é por onde a rotina começa)
+
+```bash
+tuple-api "$HERMES_PROJETOS/<Projeto>" board
+```
+
+Todos os projetos do workspace, já paginados e agrupados por status, com a lista
+`atencao` do que passou do limite (IN_PROGRESS ≥ 3d, IN_REVIEW ≥ 5d, BLOCKED).
+
+**Isto não é conveniência, é a única via dentro do cron.** Lá o sandbox bloqueia
+`execute_code`, heredoc, `python -c` e `bash -c` por não haver ninguém para
+aprovar, e a máquina não tem `jq` nem `python3`. As receitas abaixo que usam
+python só valem em sessão interativa.
+
+## Contexto do projeto (quando precisa de UM projeto)
 
 ```bash
 P="$HERMES_PROJETOS/<Projeto>"
