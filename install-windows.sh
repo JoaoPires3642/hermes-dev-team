@@ -62,15 +62,28 @@ say "Ferramentas em ~/.local/bin (wrappers: o shebang python3 não existe no Win
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 REPO_WIN="$(cygpath -w "$REPO" 2>/dev/null || echo "$REPO")"
-# só os de Python: tuple-api e kiro-pool são bash e não levam wrapper de python
-for f in meetily-notes git-bot hermes-task; do
-  [[ -f "$REPO/bin/$f" ]] || continue
-  # o shell dos bots (Git Bash / MSYS)
-  printf '#!/usr/bin/env bash\nexec python "%s" "$@"\n' "$REPO_WIN\\bin\\$f" >"$BIN_DIR/$f"
+# Os de Python levam wrapper que chama `python`; os de bash chamam o bash do Git.
+# tuple-api NÃO pode ficar de fora: sem ele o bot não fala com o TUPLE, e o
+# instalador antigo só embrulhava os de Python — a falha era silenciosa.
+BASH_WIN="$(cygpath -w "$(command -v bash)" 2>/dev/null || echo bash)"
+CR=$'\r'
+
+# $1 = nome do script · $2 = interpretador no bash · $3 = interpretador no cmd.exe
+criar_wrapper() {
+  local f=$1 posix=$2 win=$3
+  printf '#!/usr/bin/env bash\nexec %s "%s" "$@"\n' "$posix" "$REPO/bin/$f" >"$BIN_DIR/$f"
   chmod +x "$BIN_DIR/$f"
-  # cmd.exe / PowerShell
-  printf '@echo off\r\npython "%s" %%*\r\n' "$REPO_WIN\\bin\\$f" >"$BIN_DIR/$f.cmd"
+  printf '@echo off%s\n"%s" "%s" %%*%s\n' "$CR" "$win" "$REPO_WIN\\bin\\$f" "$CR" >"$BIN_DIR/$f.cmd"
+}
+
+for f in openwhispr-notes git-bot hermes-task; do
+  [[ -f "$REPO/bin/$f" ]] && criar_wrapper "$f" python python
 done
+for f in tuple-api kiro-pool; do
+  [[ -f "$REPO/bin/$f" ]] && criar_wrapper "$f" bash "$BASH_WIN"
+done
+# resto de instalação anterior: a Meetily saiu
+rm -f "$BIN_DIR/meetily-notes" "$BIN_DIR/meetily-notes.cmd"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH" ;; esac
 
 say "Skills dos agentes Kiro em ~/.kiro/hermes-dev-team"
