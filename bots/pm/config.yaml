@@ -1,7 +1,7 @@
 # Bot @pm — gerado por scripts/gen_bots.py
 model:
-  default: "auto"
-  provider: "kiro-acp"
+  default: "claude-haiku-4-5"
+  provider: "anthropic"
 
 agent:
   bot_mode_protocol: true

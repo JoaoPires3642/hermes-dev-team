@@ -56,7 +56,7 @@ say "Checando dependências"
 [[ -f "$HERMES"   ]] || die "hermes.cmd não encontrado em $HERMES"
 [[ -x "$KIRO_EXE" ]] || die "kiro-cli.exe não encontrado em $KIRO_EXE"
 python -c 'import yaml' 2>/dev/null || die "hermes-task precisa de python com PyYAML"
-[[ -f "${CBM_WIN//\//}" ]] || warn "codebase-memory-mcp não encontrado — @techlead/@dev-*/@qa perdem o grafo do código"
+[[ -f "$CBM_WIN" ]] || warn "codebase-memory-mcp não encontrado — @techlead/@dev-*/@qa perdem o grafo do código"
 
 say "Ferramentas em ~/.local/bin (wrappers: o shebang python3 não existe no Windows)"
 BIN_DIR="$HOME/.local/bin"
@@ -88,10 +88,18 @@ for b in "${BOTS[@]}"; do
   prof="$HERMES_ROOT/profiles/$b"
   [[ -d "$prof" ]] || die "profile $b não apareceu em $prof"
 
-  # provider kiro-acp (model-provider é por profile)
-  mkdir -p "$prof/plugins/model-providers/kiro-acp"
-  cp "$REPO"/plugins/model-providers/kiro-acp/{__init__.py,plugin.yaml} \
-     "$prof/plugins/model-providers/kiro-acp/"
+  # Provider deste bot vem do config.yaml gerado, não é fixo: @orquestrador, @po e @pm
+  # vão direto no Claude; os que mexem em código ficam no kiro-cli.
+  provedor=$(awk '/^model:/{f=1;next} f&&/provider:/{gsub(/[" ]/,"");sub(/provider:/,"");print;exit}' "$src/config.yaml")
+
+  if [[ "$provedor" == "kiro-acp" ]]; then
+    mkdir -p "$prof/plugins/model-providers/kiro-acp"
+    cp "$REPO"/plugins/model-providers/kiro-acp/{__init__.py,plugin.yaml} \
+       "$prof/plugins/model-providers/kiro-acp/"
+  else
+    # sobra de instalação anterior em que este bot usava kiro-acp
+    rm -rf "$prof/plugins/model-providers/kiro-acp"
+  fi
 
   # skills compartilhadas + as específicas do bot
   mkdir -p "$prof/skills"
@@ -106,9 +114,13 @@ for b in "${BOTS[@]}"; do
   # .env: chave do TUPLE é por projeto, nunca aqui
   [[ -f "$prof/.env" ]] && sed -i '/^TUPLE_API_KEY=/d' "$prof/.env" || true
   [[ -f "$prof/.env" ]] && sed -i '/^TUPLE_API_KEY=/d' "$prof/.env" || true
-  set_env "$prof/.env" HERMES_KIRO_ACP_COMMAND "$KIRO_WIN"
-  # v3 aplicaria as permissions, mas o acp não aceita --agent junto com v3 (2.24.0)
-  set_env "$prof/.env" HERMES_KIRO_ACP_ARGS "acp --agent hermes-$b"
+  if [[ "$provedor" == "kiro-acp" ]]; then
+    set_env "$prof/.env" HERMES_KIRO_ACP_COMMAND "$KIRO_WIN"
+    # v3 aplicaria as permissions, mas o acp recusa --agent junto com v3 (2.25.0)
+    set_env "$prof/.env" HERMES_KIRO_ACP_ARGS "acp --agent hermes-$b"
+  else
+    sed -i '/^HERMES_KIRO_ACP_/d' "$prof/.env" 2>/dev/null || true
+  fi
 
   # agente Kiro, com o caminho absoluto do codebase-memory-mcp
   python - "$REPO/kiro-agents/hermes-$b.json" "$HOME/.kiro/agents/hermes-$b.json" "$HOME" "$CBM_WIN" <<'PY'

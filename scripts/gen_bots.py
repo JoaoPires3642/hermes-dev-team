@@ -16,6 +16,7 @@ BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 
 BOTS = {
     "orquestrador": {
+        "model": "claude-opus-5-5", "provider": "anthropic",  # le entrada externa nao confiavel: precisa julgar injecao e nao inventar cliente
         "desc": "Recebe as entradas (notas de call da Meetily, issues marcadas no TUPLE, artefatos/PBIs), resume, propõe issues, pede o GATE 1 e distribui o trabalho por @menção.",
         "pet": "octopus",
         "toolsets": BASE_TOOLS + ["cronjob", "file"],
@@ -32,6 +33,7 @@ BOTS = {
         ],
     },
     "po": {
+        "model": "claude-sonnet-5-5", "provider": "anthropic",  # dor -> user story: escrita estruturada sobre contexto ja limpo
         "desc": "Product Owner: transforma dores do cliente em user stories com critérios de aceite no padrão BMAD e mantém PRD/épicos em docs/.",
         "pet": "peri-the-owl",
         "toolsets": BASE_TOOLS + ["file"],
@@ -43,6 +45,7 @@ BOTS = {
         ],
     },
     "pm": {
+        "model": "claude-haiku-4-5", "provider": "anthropic",  # le board e lista o que travou: quase mecanico, roda todo dia
         "desc": "Project Manager: prazos, cycles e impedimentos; routine diária varre o TUPLE, cobra BLOCKED e avisa o humano.",
         "pet": "capybara-lulu",
         "toolsets": BASE_TOOLS + ["cronjob"],
@@ -161,10 +164,16 @@ browser:
     # Meetily (local, MIT) como Markdown e o @orquestrador lê a pasta. Sem OAuth,
     # sem servidor pago, e o toolset `file` já dá o acesso necessário.
     mcp = ""
+    # Cérebro por bot. Quem mexe em código fica no kiro-cli (conta da empresa, e é lá
+    # que estão os agentes Kiro com allowed_paths e permissões). Quem lida com texto vai
+    # para o Claude direto — o @orquestrador precisa de julgamento sobre entrada externa
+    # não confiável, e o @pm faz trabalho quase mecânico que não paga modelo caro.
+    modelo = b.get("model", "auto")
+    provedor = b.get("provider", "kiro-acp")
     (d / "config.yaml").write_text(f"""# Bot @{name} — gerado por scripts/gen_bots.py
 model:
-  default: "auto"
-  provider: "kiro-acp"
+  default: "{modelo}"
+  provider: "{provedor}"
 
 agent:
   bot_mode_protocol: true
