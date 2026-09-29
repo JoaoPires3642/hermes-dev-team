@@ -65,6 +65,47 @@ Só o **@orquestrador** lê entrada externa bruta.
   volta como notificação. Não fique esperando em loop.
 - Toda passagem de bastão é um **handoff sintetizado** (abaixo), nunca o log da conversa.
 
+### A caixa de entrada é UMA só, e é de todos os clientes
+
+Cada bot tem **uma** sessão `Bot Chat`, para sempre. O relay entrega assim:
+
+```
+hermes -p <bot> chat --in ~ -c "Bot Chat" --create-if-missing -Q --query-file <tmp>
+```
+
+Três consequências que mudam como você escreve a mensagem:
+
+- **`-c` retoma, não abre nova.** Todo recado que qualquer bot te manda, de
+  **qualquer cliente**, cai na mesma conversa e o histórico acumula. O que você
+  lembra do turno anterior pode ser de outro projeto.
+- **`--in ~` é a home, não a pasta do projeto.** Você **não** recebe o `AGENTS.md`
+  do cliente de graça. A sessão não sabe onde está.
+- **Contexto cheio compacta, e compactar é perder.** Um resumo de duas frentes
+  misturadas leva detalhe do cliente A para o turno do cliente B e apaga o que
+  importava. O erro não aparece: você responde com confiança sobre o projeto errado.
+
+**Quem manda — mensagem auto-contida, sempre.** Nunca "continua o que falamos",
+nunca pronome sem antecedente. Toda `message_agent` carrega, no corpo:
+
+```
+projeto: <caminho absoluto da pasta>
+issue:   <ISSUE-KEY>
+handoff: <projeto>/.hermes/tasks/<ISSUE-KEY>/handoffs/<NN>-<de>-para-<para>.md
+<uma linha do que se espera>
+```
+
+**Quem recebe — ancore antes de agir.** Primeiro `cd` na pasta do projeto, depois
+leia o `AGENTS.md` e o handoff citado. Só então trabalhe. **Não confie em nada que
+tenha sobrado da conversa**: se a mensagem não disser o projeto, não adivinhe pelo
+histórico — pergunte a quem mandou. Adivinhar aqui significa escrever no repo de
+um cliente com o contexto de outro.
+
+A caixa é **entrega**, não é onde o trabalho mora. O trabalho mora na pasta do
+projeto, no handoff e na issue do TUPLE.
+
+Fim de épico ou troca de frente: `bot-chat-reset <bot>` zera a caixa (ela renasce
+sozinha na próxima mensagem). Corta o acúmulo e o risco de vazamento entre clientes.
+
 ## Handoff sintetizado
 
 Cada turno de bot é uma sessão kiro-cli nova: repassar histórico inteiro estoura

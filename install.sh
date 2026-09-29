@@ -49,13 +49,14 @@ fi
 # ---------------------------------------------------------------- kiro-pool + agentes Kiro
 python3 -c 'import yaml' 2>/dev/null || die "hermes-task precisa de python3 com PyYAML (Arch: pacman -S python-yaml)"
 
-say "Instalando kiro-pool, tuple-api, hermes-task, meetily-notes e git-bot em $BIN_DIR"
+say "Instalando kiro-pool, tuple-api, hermes-task, meetily-notes, git-bot e bot-chat-reset em $BIN_DIR"
 mkdir -p "$BIN_DIR"
 install -m 755 "$REPO/bin/kiro-pool" "$BIN_DIR/kiro-pool"
 install -m 755 "$REPO/bin/tuple-api" "$BIN_DIR/tuple-api"
 install -m 755 "$REPO/bin/hermes-task" "$BIN_DIR/hermes-task"
 install -m 755 "$REPO/bin/meetily-notes" "$BIN_DIR/meetily-notes"
 install -m 755 "$REPO/bin/git-bot" "$BIN_DIR/git-bot"
+install -m 755 "$REPO/bin/bot-chat-reset" "$BIN_DIR/bot-chat-reset"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH";; esac
 
 say "Instalando agentes Kiro em ~/.kiro/agents"

@@ -76,7 +76,7 @@ criar_wrapper() {
   printf '@echo off%s\n"%s" "%s" %%*%s\n' "$CR" "$win" "$REPO_WIN\\bin\\$f" "$CR" >"$BIN_DIR/$f.cmd"
 }
 
-for f in openwhispr-notes git-bot hermes-task; do
+for f in openwhispr-notes git-bot hermes-task bot-chat-reset; do
   [[ -f "$REPO/bin/$f" ]] && criar_wrapper "$f" python python
 done
 for f in tuple-api kiro-pool; do

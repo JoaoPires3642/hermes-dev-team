@@ -1,0 +1,193 @@
+#!/usr/bin/env python
+"""bot-chat-reset — zera a caixa de entrada de um bot (a sessao canonica "Bot Chat").
+
+    bot-chat-reset <bot> [<bot> ...]     apaga a Bot Chat desses bots
+    bot-chat-reset --todos               apaga a de todos os bots do install
+    bot-chat-reset --listar              so mostra o peso de cada caixa
+    bot-chat-reset ... --sim             nao pergunta (para script)
+
+Por que isto existe
+-------------------
+Cada bot tem UMA "Bot Chat", para sempre: o titulo e unico por profile e o relay
+sempre a retoma (`hermes -p <bot> chat --in ~ -c "Bot Chat" --create-if-missing`).
+Entao todo recado, de todos os clientes, se empilha na mesma conversa. Quando ela
+enche, o Hermes compacta -- e compactar e perder: o resumo leva detalhe do cliente
+A para o turno do cliente B, calado.
+
+Apagar a sessao e seguro: a proxima mensagem a recria vazia (`--create-if-missing`),
+e o registro do trabalho nunca esteve nela -- esta no handoff e no comentario da
+issue do TUPLE (skill `fluxo-time`). O que se perde e so o acumulado.
+
+Nao apaga nada alem da Bot Chat. Sessao com outro titulo nao e tocada.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sqlite3
+import sys
+from pathlib import Path
+
+TITULO = "Bot Chat"          # tools/bot_mode_probe.py: BOT_CHAT_TITLE
+OK, ERRO, USO = 0, 1, 2
+
+
+def raiz_hermes() -> Path:
+    """A pasta do install. HERMES_HOME manda; senao o padrao de cada sistema."""
+    env = os.getenv("HERMES_HOME")
+    if env:
+        p = Path(env)
+        # HERMES_HOME pode apontar para um profile (<raiz>/profiles/<nome>)
+        return p.parent.parent if p.parent.name == "profiles" else p
+    if sys.platform == "win32":
+        base = os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+        return Path(base) / "hermes"
+    for c in (Path.home() / ".hermes", Path.home() / ".local" / "share" / "hermes"):
+        if c.is_dir():
+            return c
+    return Path.home() / ".hermes"
+
+
+def bots(raiz: Path) -> list[str]:
+    d = raiz / "profiles"
+    if not d.is_dir():
+        return []
+    return sorted(p.name for p in d.iterdir() if (p / "state.db").is_file())
+
+
+def conectar(db: Path, escrita: bool) -> sqlite3.Connection:
+    # timeout generoso: o gateway costuma estar com o banco aberto em WAL
+    c = sqlite3.connect(str(db), timeout=20)
+    if not escrita:
+        c.execute("pragma query_only = 1")
+    return c
+
+
+def caixa(raiz: Path, bot: str):
+    """(id, mensagens, chamadas, tokens_lidos) da Bot Chat, ou None."""
+    db = raiz / "profiles" / bot / "state.db"
+    if not db.is_file():
+        return None
+    con = conectar(db, escrita=False)
+    try:
+        linha = con.execute(
+            "select id, message_count, api_call_count, cache_read_tokens "
+            "from sessions where trim(title)=?", (TITULO,)).fetchone()
+    finally:
+        con.close()
+    return linha
+
+
+def apagar(raiz: Path, bot: str, sid: str) -> None:
+    """Remove a sessao e o que pende dela. Tabelas que este build nao tiver sao ignoradas."""
+    db = raiz / "profiles" / bot / "state.db"
+    con = conectar(db, escrita=True)
+    try:
+        existentes = {r[0] for r in con.execute(
+            "select name from sqlite_master where type='table'")}
+        con.execute("begin immediate")
+        for tabela, coluna in (("messages", "session_id"), ("tool_calls", "session_id"),
+                               ("session_meta", "session_id"), ("sessions", "id")):
+            if tabela in existentes:
+                con.execute("delete from %s where %s=?" % (tabela, coluna), (sid,))
+        con.commit()
+    except BaseException:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="bot-chat-reset", add_help=True,
+        description="Zera a caixa de entrada (sessao 'Bot Chat') de um ou mais bots.")
+    ap.add_argument("bots", nargs="*", help="nomes dos bots (profiles)")
+    ap.add_argument("--todos", action="store_true", help="todos os bots do install")
+    ap.add_argument("--listar", action="store_true", help="so mostra o peso de cada caixa")
+    ap.add_argument("--sim", action="store_true", help="nao pergunta")
+    a = ap.parse_args(argv)
+
+    raiz = raiz_hermes()
+    if not (raiz / "profiles").is_dir():
+        print("bot-chat-reset: nao achei os profiles em %s "
+              "(defina HERMES_HOME)" % raiz, file=sys.stderr)
+        return ERRO
+    todos = bots(raiz)
+
+    if a.listar or (not a.bots and not a.todos):
+        print("%-16s %-24s %8s %8s %12s" % ("bot", "sessao", "msgs", "calls", "tok lidos"))
+        for b in todos:
+            c = caixa(raiz, b)
+            if c is None:
+                print("%-16s %s" % (b, "(sem Bot Chat)"))
+            else:
+                print("%-16s %-24s %8s %8s %12s" % (b, c[0], c[1], c[2], c[3]))
+        if not a.listar:
+            print("\nNada apagado. Use: bot-chat-reset <bot> [...] | --todos", file=sys.stderr)
+            return USO
+        return OK
+
+    alvos = todos if a.todos else a.bots
+    desconhecidos = [b for b in alvos if b not in todos]
+    if desconhecidos:
+        print("bot-chat-reset: nao conheco %s. Existem: %s"
+              % (", ".join(desconhecidos), ", ".join(todos)), file=sys.stderr)
+        return USO
+
+    pendentes = []
+    for b in alvos:
+        c = caixa(raiz, b)
+        if c is None:
+            print("@%s: sem Bot Chat, nada a fazer" % b)
+        else:
+            pendentes.append((b, c))
+    if not pendentes:
+        return OK
+
+    print("\nVai apagar a caixa de entrada de:")
+    for b, c in pendentes:
+        print("  @%-14s %s  (%s msgs, %s chamadas)" % (b, c[0], c[1], c[2]))
+    print("\nA caixa renasce vazia na proxima mensagem. O trabalho nao mora nela:")
+    print("esta no handoff e no comentario da issue do TUPLE.")
+
+    if not a.sim:
+        # `isatty()` mente em alguns shells (Git Bash), entao o EOF do input tambem
+        # conta como "nao ha ninguem para confirmar" - e nesses dois casos nao se
+        # apaga nada: quem chama de script usa --sim de proposito.
+        sem_terminal = not sys.stdin.isatty()
+        resp = ""
+        if not sem_terminal:
+            try:
+                resp = input("\nConfirma? [s/N] ").strip().lower()
+            except EOFError:
+                sem_terminal = True
+            except KeyboardInterrupt:
+                print("\nCancelado.")
+                return USO
+        if sem_terminal:
+            print("\nbot-chat-reset: sem terminal para confirmar - repita com --sim",
+                  file=sys.stderr)
+            return USO
+        if resp not in ("s", "sim", "y", "yes"):
+            print("Cancelado.")
+            return USO
+
+    saida = OK
+    for b, c in pendentes:
+        try:
+            apagar(raiz, b, c[0])
+            print("@%s: caixa zerada" % b)
+        except sqlite3.OperationalError as e:
+            print("@%s: nao deu - %s. O gateway pode estar com o banco travado; "
+                  "pare com `hermes gateway stop` e repita." % (b, e), file=sys.stderr)
+            saida = ERRO
+        except Exception as e:
+            print("@%s: nao deu - %s" % (b, e), file=sys.stderr)
+            saida = ERRO
+    return saida
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
