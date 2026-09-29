@@ -1,13 +1,13 @@
 # <Projeto> — contexto para o time de bots
 
-> Copie esta pasta para `~/Documentos/<Projeto>/` e preencha. Este arquivo é lido
+> Copie esta pasta para `$HERMES_PROJETOS/<Projeto>/` e preencha. Este arquivo é lido
 > pelos bots e pelas sessões kiro-cli. **Nada de segredo aqui**: a chave do TUPLE
 > deste projeto fica em `.hermes/tuple.env` (chmod 600); credenciais git no
 > credential helper da máquina.
 
 ## Projeto
 - Nome / descrição curta:
-- Prefixo do cliente no título das calls (vira a pasta em `~/Documentos/_calls/`):
+- Pasta do cliente no OpenWhispr (vira a pasta em `~/Documents/_calls/`; prefixo `[Cliente]` no título é reserva):
 - Pasta de docs BMAD: `docs/`
 - Humanos no time (nome · papel · quem revisa):
 - Onde tirar dúvida técnica:

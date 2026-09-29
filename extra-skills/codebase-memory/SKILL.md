@@ -18,7 +18,7 @@ MIT, sem rede/telemetria). Disponível nas sessões kiro-cli de @techlead, @dev-
 
 1. `list_projects` — o repo já está indexado?
 2. Se não: `index_repository(repo_path="<caminho ABSOLUTO do repo>")`
-   (ex.: `~/Documentos/<Projeto>/<repo>` expandido). Depois disso o índice se mantém
+   (ex.: `$HERMES_PROJETOS/<Projeto>/<repo>` expandido). Depois disso o índice se mantém
    sozinho (watcher).
 3. `get_graph_schema` e `get_architecture(aspects=['all'])` para se situar.
 

@@ -49,10 +49,24 @@ for _fluxo in (sys.stdout, sys.stderr):
 
 
 def inbox_padrao():
+    """Onde as notas de call são escritas.
+
+    De propósito NÃO é a pasta dos projetos. Os projetos moram no OneDrive
+    corporativo e sincronizam; transcrição de call de cliente fica **local**, fora
+    da sincronização — o motivo de usar OpenWhispr foi justamente transcrever sem
+    o áudio sair da máquina. Pasta de OneDrive é ignorada aqui mesmo que exista.
+
+    HERMES_CALLS manda, se definida.
+    """
+    env = os.getenv("HERMES_CALLS")
+    if env:
+        return Path(env) if env.endswith("_calls") else Path(env) / "_calls"
+
     casa = Path.home()
     for nome in ("Documentos", "Documents"):
-        if (casa / nome).is_dir():
-            return casa / nome / "_calls"
+        d = casa / nome
+        if d.is_dir() and "onedrive" not in str(d).lower():
+            return d / "_calls"
     return casa / "Documentos" / "_calls"
 
 

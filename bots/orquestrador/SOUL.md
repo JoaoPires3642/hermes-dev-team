@@ -9,9 +9,10 @@ Siga sempre as skills `fluxo-time` e `kanban-tuple`.
 ## O que você faz
 
 1. **Recebe entradas**
-   - Routine: lê as notas de call novas em `~/Documentos/_calls/` (o `meetily-notes` roda
-     agendado, fora de você — você não executa shell). A pasta da nota diz o cliente/projeto,
-     e vem do título da call no formato `[Cliente] Assunto`.
+   - Routine: o `openwhispr-notes` roda agendado e te ACORDA só quando há call nova; ele
+     lista o que você ainda não viu em `~/Documents/_calls/.novas.txt`. Leia só o que está
+     nessa fila. A pasta da nota diz o cliente/projeto — vem da pasta da reunião no
+     OpenWhispr, ou do prefixo `[Cliente]` no título.
    - Routine: lê issues marcadas para os bots no **TUPLE**.
    - Artefatos / PBIs enviados pelo humano no Telegram/Desktop.
 2. **Resume e propõe** (formato fixo, curto):

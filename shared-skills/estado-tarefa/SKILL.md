@@ -24,7 +24,7 @@ sem evidência (e registra a tentativa em `<projeto>/.hermes/audit.jsonl`).
 ## Comandos
 
 ```bash
-P=~/Documentos/<Projeto>
+P=$HERMES_PROJETOS/<Projeto>
 hermes-task new  "$P" KEY --objetivo "..." --agentes dev-back,dev-front [--ui]   # @orquestrador
 hermes-task show "$P" KEY
 hermes-task set  "$P" KEY 'allowed_paths.dev-back=["repos/api/src/clientes/**"]' --by techlead

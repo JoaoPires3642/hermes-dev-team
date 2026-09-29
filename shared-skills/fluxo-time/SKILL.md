@@ -23,10 +23,10 @@ metadata:
 
 ## Projetos
 
-Cada projeto é uma pasta **`~/Documentos/<Projeto>/`** (não é repo) com:
+Cada projeto é uma pasta **`$HERMES_PROJETOS/<Projeto>/`** (não é repo) com:
 `AGENTS.md` (contexto, IDs do TUPLE, repos, branches, restrições), `.hermes/tuple.env`
 (chave do TUPLE deste projeto), `.kiro/steering/`, a pasta de docs BMAD indicada no
-AGENTS.md e os repos clonados. Descobrir projetos: `ls ~/Documentos/*/AGENTS.md`.
+AGENTS.md e os repos clonados. Descobrir projetos: `ls $HERMES_PROJETOS/*/AGENTS.md`.
 Sem `AGENTS.md` = não é projeto do time; não mexa. Trabalhe sempre com o caminho
 absoluto da pasta do projeto.
 
@@ -39,8 +39,9 @@ e registra quando aprende algo caro. Virou regra permanente → promova para
 
 ## Entradas
 
-1. **Call** — nota nova em `~/Documentos/_calls/<cliente>/` (exportada da Meetily pelo
-   `meetily-notes`); a pasta = cliente/projeto. Caiu em `_sem-cliente/`? Pergunte de quem é.
+1. **Call** — nota nova em `~/Documents/_calls/<cliente>/`, exportada do OpenWhispr pelo
+   `openwhispr-notes`, que acorda o @orquestrador **só quando há call nova** e lista o
+   pendente em `.novas.txt`. A pasta = cliente/projeto. Caiu em `_sem-cliente/`? Pergunte.
 2. **Issue marcada no TUPLE** — bug, pedido, PBI já existente.
 3. **Artefato / PBI** — enviado pelo humano no Telegram/Desktop.
 

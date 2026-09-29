@@ -49,7 +49,16 @@
 - Bots agem como o João e marcam `[bot @nome]`.
 
 ## 4. Workspace + kiro-cli (cérebro e execução)
-- `~/Documentos/<Projeto>/` (pasta, não repo): `AGENTS.md`, `.hermes/tuple.env` (chave do
+
+> **Onde ficam os projetos:** `$HERMES_PROJETOS` — variável de ambiente do usuário,
+> uma pasta por projeto/cliente dentro dela. Não é detectada: numa máquina com
+> OneDrive corporativo existem `~/Documents` (vazio de projetos) e
+> `~/OneDrive - <Org>/Documentos` (os projetos de verdade), e adivinhar erra calado.
+>
+> **As notas de call NÃO ficam junto.** `_calls/` mora em `~/Documents`, local e fora
+> da sincronização do OneDrive: transcrição de cliente não sai da máquina, que é o
+> motivo de transcrever local. Use `HERMES_CALLS` para mudar.
+- `$HERMES_PROJETOS/<Projeto>/` (pasta, não repo): `AGENTS.md`, `.hermes/tuple.env` (chave do
   TUPLE do projeto), docs BMAD, `.kiro/` (steering + specs) e os repos clonados.
 - Provider **kiro-acp**: cada turno de bot = sessão `kiro-cli acp --agent hermes-<bot>`.
 - **kiro-pool**: máx. 4 sessões simultâneas — ⚠️ **não portado para Windows** (depende de `flock`).
@@ -90,7 +99,7 @@
 - ⚠️ **Todo áudio gravado vira nota que o @orquestrador lê.** O padrão é exportar; call sensível
   exige desabilitar a tarefa `hermes-dev-team - openwhispr-notes` **antes** de gravar.
 - ℹ️ Windows: `install-windows.sh` cobre o que o `install.sh` não faz aqui (hermes.cmd,
-  HERMES_HOME em `%LOCALAPPDATA%`, wrappers dos scripts Python). `~/Documents`, não `~/Documentos`.
+  HERMES_HOME em `%LOCALAPPDATA%`, wrappers dos scripts Python).
 - ℹ️ Gateway: um por máquina (`hermes gateway install`, sem `-p`), serve os 7 profiles. Sobe no
   login e o `gateway-heartbeat` avisa no Telegram se parar — falando direto com a API do
   Telegram, porque o gateway é justamente o que cairia.

@@ -4,7 +4,7 @@ Time de bots de dev no **Hermes Agent (Bot Mode)**, com o **kiro-cli** como cér
 motor de execução. Tudo que é decidido vira issue no **TUPLE** (fonte da verdade).
 
 ```
-Entradas (nota de call da Meetily · issue no TUPLE · artefatos/PBIs)
+Entradas (nota de call do OpenWhispr · issue no TUPLE · artefatos/PBIs)
   → @orquestrador → GATE 1 (humano) → issues no TUPLE + sala do projeto
   → @po / @techlead → story BMAD (DoR) → GATE 2 (humano) → .kiro/specs
   → @dev-front / @dev-back → @qa (loop até passar) → PR → GATE 3 (humano, merge)
@@ -47,8 +47,9 @@ cd ~/hermes-dev-team
 Depois, uma vez por máquina:
 
 1. `kiro-cli login`
-2. Instalar a [Meetily](https://github.com/Zackriya-Solutions/meetily) (MIT, local) e gravar
-   as calls com o título no formato `[Cliente] Assunto` — é daí que sai o cliente/projeto
+2. Instalar o [OpenWhispr](https://github.com/OpenWhispr/openwhispr) (MIT, local: transcreve e
+   separa quem falou sem o áudio sair da máquina). Crie **uma pasta por cliente** dentro dele e
+   grave a reunião lá — é de onde sai o cliente/projeto; o prefixo `[Cliente]` no título é reserva
 3. Hermes Desktop → Settings → Advanced → **Warm Bot Backends = 7**
 4. Telegram — são **dois** passos, e o segundo é o que costuma faltar:
    - `hermes -p orquestrador gateway setup` — interativo, pede o token do @BotFather
@@ -58,9 +59,12 @@ Depois, uma vez por máquina:
    - conferir: `hermes gateway status`
 5. Routines no Desktop (aba Bots → Routines):
    - @orquestrador: a cada 15 min — "rodar `meetily-notes novas` e ler as notas novas em
-     ~/Documentos/_calls/, mais as issues marcadas no TUPLE"
+     ~/Documents/_calls/, mais as issues marcadas no TUPLE"
    - @pm: dias úteis 9h — "resumo do board: IN_PROGRESS parado, BLOCKED, IN_REVIEW"
-6. Projeto novo: `cp -r templates/projeto ~/Documentos/<Projeto>` (os repos ficam dentro) e preencher:
+6. `HERMES_PROJETOS` — variável de ambiente apontando a pasta que contém os projetos
+   (numa máquina com OneDrive corporativo, costuma ser `~/OneDrive - <Org>/Documentos`).
+   As notas de call ficam à parte, em `~/Documents/_calls` — fora da sincronização.
+7. Projeto novo: `cp -r templates/projeto $HERMES_PROJETOS/<Projeto>` (os repos ficam dentro) e preencher:
    - `AGENTS.md` — IDs do TUPLE, repos, branches, restrições (sem segredos)
    - `.kiro/steering/` — arquitetura, segurança, padrões
    - `.hermes/tuple.env` — API key do TUPLE **deste projeto** (`chmod 600`)
@@ -107,7 +111,7 @@ TUPLE) e `~/.hermes/dev-team-audit.jsonl` (sessões kiro-cli: bot, vaga, duraç�
 ## Segredos
 
 Nenhum segredo neste repo nem nos profiles dos bots. **Cada projeto tem a sua API key
-do TUPLE**, em `~/Documentos/<Projeto>/.hermes/tuple.env` (chmod 600). Os bots só
+do TUPLE**, em `$HERMES_PROJETOS/<Projeto>/.hermes/tuple.env` (chmod 600). Os bots só
 chamam a API pelo `tuple-api <pasta-do-projeto> get|post <procedure> '<json>'`, que lê
 a chave do projeto sem expô-la. Credenciais git vêm do credential helper da máquina.
 

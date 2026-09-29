@@ -6,7 +6,7 @@
 #   ./install.sh dev-back qa     # só alguns
 #
 # Segredos: nenhum aqui. A API key do TUPLE é POR PROJETO, em
-#   ~/Documentos/<Projeto>/.hermes/tuple.env  (chmod 600) — ver templates/projeto.
+#   $HERMES_PROJETOS/<Projeto>/.hermes/tuple.env  (chmod 600) — ver templates/projeto.
 
 set -euo pipefail
 
@@ -124,11 +124,11 @@ cat <<EOF
 
 Próximos passos (uma vez por máquina):
   1. kiro-cli login                                  # conta da empresa
-  2. instalar a Meetily (transcrição local) e gravar as calls como '[Cliente] Assunto'
+  2. instalar o OpenWhispr (transcrição local) e criar uma pasta por cliente dentro dele
   3. Hermes Desktop → Settings → Advanced → Warm Bot Backends = 7
   4. Telegram: hermes -p orquestrador gateway setup   # token do @BotFather
      depois:   hermes gateway install                 # gateway do host (sem -p), serve os 7
   5. Routines no Desktop: @orquestrador (meetily-notes + TUPLE) e @pm (diária)
-  6. Projeto novo: cp -r $REPO/templates/projeto ~/Documentos/<Projeto>
+  6. Projeto novo: cp -r $REPO/templates/projeto $HERMES_PROJETOS/<Projeto>
      preencher AGENTS.md, .kiro/steering/ e .hermes/tuple.env (chave DO projeto, chmod 600)
 EOF

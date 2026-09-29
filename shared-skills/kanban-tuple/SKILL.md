@@ -45,8 +45,8 @@ já tenha (`members.*` é inacessível pela API).
 - **Mutation** — `POST /trpc/<proc>` com o JSON no body
 
 ```bash
-# a pasta do projeto: ~/Documentos/<Projeto> no Linux, ~/Documents/<Projeto> no Windows
-P=~/Documentos/<Projeto>
+# a pasta do projeto: $HERMES_PROJETOS/<Projeto> no Linux, ~/Documents/<Projeto> no Windows
+P=$HERMES_PROJETOS/<Projeto>
 
 # query  (GET  /trpc/<proc>?input=...)
 tuple-api "$P" get  issues.getByKey '{"key":"ABC-12","workspaceId":"<ws>"}'
