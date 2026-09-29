@@ -98,9 +98,12 @@ saem como texto no comentário. `cycles.*` só com escopo `cycles:read`.
   errada e ninguém percebe até alguém olhar o board. Aconteceu de verdade: oito
   issues seguidas criadas como `bug` por omissão, e outras três tiveram que ser
   convertidas depois. **Sempre mande `type` explícito** no `issues.create`.
-- **`labelIds` e `assigneeId` não são graváveis por API.** A issue nasce sem dono
-  e sem label; labels sugeridas vão como texto no comentário, e a atribuição é
-  feita por alguém na interface.
+- **Você não consegue atribuir dono — mas não porque o campo seja bloqueado.**
+  `issues.update` aceita `assigneeId`; o que falta é o id de alguém: `members.list`
+  responde 403 para API key, não existe `users.list`, e nenhuma issue do board tem
+  dono de onde copiar (100 lidas, 0 atribuídas — verificado em 29/09/2026). Então a
+  issue nasce e permanece **sem dono**, e quem atribui é uma pessoa na interface.
+  `labelIds` idem: label sugerida vai como texto no comentário.
 - **Anexo**: `issues.getAttachmentDownloadUrl '{"id":"<attachmentId>"}'` devolve
   URL assinada que **expira em ~10 min** — baixe na hora, não guarde o link.
 - **`type` é validado contra o WORKSPACE, não o projeto** — o `issueTypes` do projeto
@@ -134,13 +137,16 @@ Prioridade: `URGENT` · `HIGH` · `MEDIUM` · `LOW` · `NONE`
 **O workflow não deixa pular coluna**: `BACKLOG → IN_PROGRESS` direto falha. Passar
 por `TODO` (duas chamadas).
 
-## Ciclo de vida (regra de ouro: nenhuma issue é trabalhada sem dono e na coluna certa)
+## Ciclo de vida (regra de ouro: nenhuma issue é trabalhada fora da coluna certa)
+
+**Quem está trabalhando aparece no comentário, não no campo dono.** A coluna `Dono`
+abaixo é o que se espera do lado humano; o bot não preenche.
 
 | Momento | Status | Dono |
 |---|---|---|
 | Criada, não priorizada | `BACKLOG` | — |
 | Selecionada para execução | `TODO` | — |
-| **Antes da primeira alteração de código** | **`IN_PROGRESS`** | **assinar** |
+| **Antes da primeira alteração de código** | **`IN_PROGRESS`** | comentar `[bot @nome] assumindo` |
 | **PR aberto, aguardando revisão** | **`IN_REVIEW`** | mantém |
 | Parada por dependência/decisão | `BLOCKED` | mantém (comentário diz o que destrava) |
 | Merge feito e CAs verificados | `DONE` | **só a revisão humana move** |
@@ -149,8 +155,8 @@ Nunca `DONE` por implementação parcial, teste falhando ou CA não verificado.
 
 ## Permissão
 
-- **Livre**: ler; assinar a issue que está executando; mover status do próprio
-  trabalho; comentar progresso.
+- **Livre**: ler; mover status do próprio trabalho; comentar progresso — inclusive
+  o comentário que marca que você assumiu, já que o campo dono não é preenchível.
 - **Criar issue**: só depois do GATE 1 aprovado. Nasce em `BACKLOG`, anunciada na
   sala com `key` e título.
 - **Só com OK humano explícito**: alterar título/descrição/prioridade de issue

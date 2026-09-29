@@ -22,7 +22,7 @@ o bot descobre com `projects.list`.
 | Campo | Valor |
 |---|---|
 | workspace slug (só para humano achar a URL) | |
-| assigneeId do João (issue criada por API nasce sem dono) | |
+| assigneeId do João, se você souber | (opcional: a API aceita gravar, mas o bot não consegue descobrir id de ninguém — `members.list` dá 403) |
 | Como marcar issue para os bots | (ex.: comentário `@bots` ou prioridade/coluna combinada) |
 
 ## Repositórios (em `repos/`)
