@@ -276,7 +276,15 @@ schtasks //Create //F //SC MINUTE //MO 15 //TN "hermes-dev-team - openwhispr-not
   || warn "não consegui agendar: rode no cmd -> schtasks /Create /F /SC MINUTE /MO 15 /TN \"hermes-dev-team - openwhispr-notes\" /TR \"$BIN_WIN\\hermes-calls.cmd\""
 
 # Resumo do dia às 17h (dias úteis), pelo bot do @pm. HERMES_DAILY_HORA muda o horário.
-printf '@echo off%s\npython "%s"%s\n' "$CR" "$REPO_WIN\\bin\\resumo-do-dia" "$CR" >"$BIN_DIR/hermes-daily.cmd"
+# Mesma armadilha do hermes-calls.cmd, e eu corrigi um e esqueci o outro: a tarefa
+# agendada roda com ambiente enxuto e nao le o site-packages do usuario. Sem esta
+# linha o resumo das 17h morre em `import yaml` todo dia, e sai com exit 1 calado.
+printf '@echo off%s
+' "$CR" >"$BIN_DIR/hermes-daily.cmd"
+[[ -n "$PYSITE_WIN" ]] && printf 'set "PYTHONPATH=%s;%%PYTHONPATH%%"%s
+' "$PYSITE_WIN" "$CR" >>"$BIN_DIR/hermes-daily.cmd"
+printf 'python "%s"%s
+' "$REPO_WIN\bin\resumo-do-dia" "$CR" >>"$BIN_DIR/hermes-daily.cmd"
 schtasks //Create //F //SC WEEKLY //D MON,TUE,WED,THU,FRI //ST "${HERMES_DAILY_HORA:-17:00}" \
   //TN "hermes-dev-team - resumo-do-dia" //TR "\"$BIN_WIN\\hermes-daily.cmd\"" >/dev/null 2>&1 \
   || warn "não consegui agendar o resumo do dia (schtasks)"
