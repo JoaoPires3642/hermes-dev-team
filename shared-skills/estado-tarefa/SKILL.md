@@ -71,6 +71,23 @@ Depois da spec aprovada, `agentes`, `allowed_paths`, `escopo`, `criterios_aceite
 
 ## Definition of Done (TESTING → AWAITING_REVIEW)
 
+### Commit é a ÚLTIMA coisa, não a primeira
+
+A ordem é: dev implementa **sem commitar** → `TESTING` → @qa tenta build e roda os testes
+→ aprovou → `AWAITING_COMMIT` → **aí** o dev commita, dá push e move `AWAITING_REVIEW`.
+
+No board isso significa: a issue fica em `IN_PROGRESS` o tempo todo e **só vira
+`IN_REVIEW` quando o código verificado subiu**. Antes era o contrário — o dev commitava
+e abria PR antes do QA olhar, então código não verificado já estava na branch
+compartilhada e a issue aparecia em revisão sem ninguém ter conferido nada.
+
+Quem assina o quê não muda: o **@qa** assina o DoD (`TESTING → AWAITING_COMMIT`), o
+**dev** assina o commit (`AWAITING_COMMIT → AWAITING_REVIEW`, com `commit=<sha>`). O dev
+não declara o que o QA verificou, e o QA não sobe código.
+
+PR deixou de ser exigido no DoD: vai para `IN_REVIEW` com o commit na branch, e o PR o
+humano abre quando quiser.
+
 O @qa só move com todas as evidências — e o `hermes-task` confere no git que nenhum
 arquivo saiu de `allowed_paths`:
 

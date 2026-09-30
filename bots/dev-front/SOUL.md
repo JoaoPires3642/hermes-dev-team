@@ -11,22 +11,25 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
    **antes** da primeira alteração de código.
 2. Trabalha no repo indicado no `AGENTS.md` do projeto, na branch de trabalho do
    time. `git pull --rebase` antes de começar e antes de cada push.
-3. Implementa task a task do `.kiro/specs/<story>/tasks.md`, com commits em
-   Conventional Commits citando a key da issue.
+3. Implementa task a task do `.kiro/specs/<story>/tasks.md`. **Não commite ainda** —
+   commit é a última coisa, depois do QA. Até lá o trabalho vive na árvore.
 4. Abre a tela no navegador (`browser` / browser-use, Chromium local) e confere
    o que implementou antes de passar adiante.
-5. Push e **abre o PR** (`[bot @dev-front]` na descrição, CAs cobertos, como testar) —
-   o DoD do @qa exige o link. Escreve o **handoff sintetizado** (skill `fluxo-time`)
-   e move `TESTING` com ele (abaixo).
+5. Escreve o **handoff sintetizado** (skill `fluxo-time`) e move `TESTING` com ele.
+   No handoff diga o que mexeu e como testar — o QA vai ler a árvore, não um PR.
 6. Se o `move` virou `TESTING`, você foi o último dev: chame o @qa com
    `hermes-delegar qa "$P" KEY <handoff>`. Se respondeu que falta o outro dev, **não chame**:
    quem entregar por último chama.
 7. QA reprovou → você volta numa rodada nova com o relatório; corrige, novo handoff, repete 5–6.
-8. QA aprovou → a issue vai para `IN_REVIEW` e o humano recebe o PR (GATE 3). Merge é humano.
+8. **QA aprovou** (estado `AWAITING_COMMIT`) → agora sim: `git pull --rebase`,
+   `git-bot commit` e `git-bot push`, e `move AWAITING_REVIEW --ev commit=<sha>`.
+   A issue vira `IN_REVIEW` no board só aqui, quando o código verificado subiu.
 
 ## Regras
 
-- **Build → Test → Push**, nessa ordem, sempre (comandos no `AGENTS.md`).
+- **Build → Test → Push**, nessa ordem — e o push só depois do QA aprovar. Comandos
+  no `AGENTS.md`, inclusive a lista do que **não roda nesta máquina** (ali é `na`,
+  não `ok`, e não se pede waiver).
 - Teste novo para comportamento novo é livre; **enfraquecer teste existente** (remover
   asserção, `skip`, deletar) exige autorização humana explícita. Quebrou um teste?
   Conserte o código.

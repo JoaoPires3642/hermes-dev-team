@@ -69,7 +69,7 @@ ATORES = BOTS | {"humano"}
 
 ESTADOS = [
     "RECEIVED", "TRIAGED", "AWAITING_APPROVAL", "SPECIFYING", "AWAITING_SPEC_APPROVAL",
-    "SPEC_APPROVED", "IMPLEMENTING", "TESTING", "CHANGES_REQUESTED", "AWAITING_REVIEW",
+    "SPEC_APPROVED", "IMPLEMENTING", "TESTING", "CHANGES_REQUESTED", "AWAITING_COMMIT", "AWAITING_REVIEW",
     "MERGED", "DEPLOYED", "HOMOLOGATING", "CLOSED", "BLOCKED",
 ]
 
@@ -78,6 +78,8 @@ TUPLE_STATUS = {
     "RECEIVED": "BACKLOG", "TRIAGED": "BACKLOG", "AWAITING_APPROVAL": "BACKLOG",
     "SPECIFYING": "TODO", "AWAITING_SPEC_APPROVAL": "TODO", "SPEC_APPROVED": "TODO",
     "IMPLEMENTING": "IN_PROGRESS", "TESTING": "IN_PROGRESS", "CHANGES_REQUESTED": "IN_PROGRESS",
+    # aprovado pelo QA e ainda sem commit: para quem olha o board, continua em andamento
+    "AWAITING_COMMIT": "IN_PROGRESS",
     "AWAITING_REVIEW": "IN_REVIEW", "MERGED": "IN_REVIEW", "DEPLOYED": "IN_REVIEW",
     "HOMOLOGATING": "IN_REVIEW", "CLOSED": "DONE", "BLOCKED": "BLOCKED",
 }
@@ -95,7 +97,7 @@ TUPLE_STATUS = {
 # O projeto declara o que não roda no próprio `AGENTS.md`.
 DOD = {
     "build": "ok|na", "lint_typecheck": "ok|na", "testes": "ok", "integracao": "ok|na",
-    "seguranca": "ok", "ca": "ok", "revisao": "arquivo", "pr": "texto", "tuple": "ok",
+    "seguranca": "ok", "ca": "ok", "revisao": "arquivo", "tuple": "ok",
 }
 
 H = {"humano"}
@@ -114,7 +116,15 @@ TRANSICOES = {
     ("IMPLEMENTING", "TESTING"): (DEVS, {"handoff": "arquivo"}),
     ("TESTING", "CHANGES_REQUESTED"): ({"qa"}, {"relatorio": "arquivo", "para": "texto"}),
     ("CHANGES_REQUESTED", "IMPLEMENTING"): (DEVS, {}),
-    ("TESTING", "AWAITING_REVIEW"): ({"qa"}, DOD),
+    # O QA aprova, mas nao e ele quem sobe o codigo: assina o DoD e a tarefa fica
+    # esperando o commit. Antes o dev commitava ANTES do QA olhar, entao codigo nao
+    # verificado ja estava na branch compartilhada e a issue ia para IN_REVIEW sem
+    # ninguem ter conferido. Agora commit e a ULTIMA coisa, e so acontece sobre o que
+    # passou.
+    ("TESTING", "AWAITING_COMMIT"): ({"qa"}, DOD),
+    ("AWAITING_COMMIT", "AWAITING_REVIEW"): (DEVS, {"commit": "texto"}),
+    # QA aprovou mas o commit nao subiu (conflito, push recusado): volta ao dev
+    ("AWAITING_COMMIT", "CHANGES_REQUESTED"): (DEVS | {"qa"}, {"motivo": "texto", "para": "texto"}),
     ("AWAITING_REVIEW", "MERGED"): (H, {"via": "texto"}),                                 # GATE 3
     ("AWAITING_REVIEW", "CHANGES_REQUESTED"): (H, {"motivo": "texto", "para": "texto"}),
     ("MERGED", "DEPLOYED"): (H, {"deploy": "texto"}),
@@ -381,7 +391,7 @@ def cmd_move(a):
                 sem_escopo = [d for d in m["agentes"] if d in DEVS and not (m.get("allowed_paths") or {}).get(d)]
                 if sem_escopo:
                     negar(f"defina allowed_paths para: {', '.join(sem_escopo)}")
-            if (de, para) == ("TESTING", "AWAITING_REVIEW") and m.get("tem_ui"):
+            if (de, para) == ("TESTING", "AWAITING_COMMIT") and m.get("tem_ui"):
                 exig["evidencia_visual"] = "arquivo"
             faltas = checa_ev(root, exig, ev)
             if faltas:
@@ -397,7 +407,7 @@ def cmd_move(a):
                     audit(root, tipo="handoff", task=a.key, por=por, aguardando=faltam)
                     print(f"handoff de @{por} registrado; TESTING só depois de: {', '.join(faltam)}")
                     return
-            if (de, para) == ("TESTING", "AWAITING_REVIEW"):
+            if (de, para) == ("TESTING", "AWAITING_COMMIT"):
                 ruins = fora_do_escopo(root, m)
                 if ruins:
                     negar("arquivos fora de allowed_paths: " + ", ".join(ruins[:10]))
@@ -531,7 +541,8 @@ def cmd_states(_):
     for (de, para), (quem, exig) in TRANSICOES.items():
         print(f"{de:24} → {para:24} por {','.join(sorted(quem)):28} evidência: {', '.join(exig) or '—'}")
     print("\nSPECIFYING→AWAITING_SPEC_APPROVAL também exige contrato (se front+back) e allowed_paths de cada dev.")
-    print("TESTING→AWAITING_REVIEW (DoD) também exige evidencia_visual se tem_ui, e confere allowed_paths no git.")
+    print("TESTING→AWAITING_COMMIT (DoD, do @qa) exige evidencia_visual se tem_ui e confere allowed_paths.")
+    print("AWAITING_COMMIT→AWAITING_REVIEW é do dev: commit e push do que o QA aprovou.")
     print("IMPLEMENTING→TESTING só avança quando todos os devs da tarefa entregaram handoff.")
 
 

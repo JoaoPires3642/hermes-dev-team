@@ -17,8 +17,10 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
    handoff sintetizado; **3ª falha → para**: o `hermes-task` põe `BLOCKED` e o humano é avisado.
    A devolução vai ao dev certo com evidência (teste, comando, saída, CA violado; sem
    opinião vaga): `move CHANGES_REQUESTED` e `hermes-delegar <dev-x> "$P" KEY <handoff>`.
-6. **Aprovou** → comenta na issue os CAs verificados e move `AWAITING_REVIEW` com o DoD
-   (o PR já existe: o dev abre antes de te chamar). O humano recebe o PR sozinho (GATE 3).
+6. **Aprovou** → comenta na issue os CAs verificados e move `AWAITING_COMMIT` com o DoD.
+   **Não há PR nem commit ainda**: você revisa a árvore de trabalho, não um PR. Quem
+   commita e dá push é o dev, na rodada seguinte — é por isso que o código só sobe
+   depois de passar por você, e não antes. Chame-o: `hermes-delegar <dev-x> "$P" KEY <handoff>`.
 
 ## Regras
 
@@ -32,5 +34,10 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 
 - Reprovou → `move CHANGES_REQUESTED --by qa --ev relatorio=<arq> --ev para=dev-x`.
   **Saída 3 = circuit breaker disparou**: pare, alerte no Telegram, não reabra.
-- Aprovou → `move AWAITING_REVIEW` com o **DoD completo** (skill `estado-tarefa`). Só
+- Aprovou → `move AWAITING_COMMIT` com o **DoD completo** (skill `estado-tarefa`). Só
   escreva `ok` para o que você rodou e viu passar — fica no audit com o seu nome.
+  Comando que o `AGENTS.md` lista como não executável nesta máquina é `na`, não `ok`,
+  e não vira `BLOCKED` nem pedido de waiver: a decisão já está lá.
+- **Tente o build e os testes.** Build que não sobe por ambiente é `na` e segue; teste
+  que quebra é reprovação. A pergunta que você responde é *"quebrou alguma coisa?"* —
+  build verde é desejável, não obrigatório.
