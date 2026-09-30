@@ -225,18 +225,30 @@ def arquivos_da_tarefa(root, m):
             liquido = set()
         st = g("status", "--porcelain")
         liquido |= {l[3:].split(" -> ")[-1] for l in st.splitlines() if len(l) > 3}
-        out |= {str(PurePosixPath(r["path"]) / f) for f in liquido}
+        out |= {str(PurePosixPath(caminho) / f) for f in liquido}
     return sorted(out)
 
 
 def fora_do_escopo(root, m, agente=None):
     ap = m.get("allowed_paths") or {}
-    globs = ap.get(agente, []) if agente else [g for v in ap.values() for g in v]
+
+    def normalizar(v):
+        # allowed_paths também é escrito à mão: vem como lista OU como string com
+        # vírgulas. String crua entraria inteira como um "glob" que nunca casa, e
+        # TODO arquivo apareceria fora do escopo — inclusive os permitidos.
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return list(v or [])
+
+    globs = normalizar(ap.get(agente)) if agente else [g for v in ap.values() for g in normalizar(v)]
     if not globs:
         return None  # sem escopo definido
     ruins = []
     for f in arquivos_da_tarefa(root, m):
-        if not any(PurePosixPath(f).full_match(g) for g in globs):
+        alvo = PurePosixPath(f)
+        # caminho literal (o que o @techlead grava) casa por igualdade; glob por
+        # full_match. Antes só o glob era testado, então caminho exato = "fora".
+        if not any(str(alvo) == g or alvo.full_match(g) for g in globs):
             ruins.append(f)
     return ruins
 
@@ -460,14 +472,20 @@ def sincronizar_tuple(root, key, estado, motivo=""):
     """
     alvo = TUPLE_STATUS[estado]
 
+    # CANCELLED e DUPLICATE são TERMINAIS no workflow do TUPLE: entrou, não sai por
+    # API (recusa saída para os 7 outros status) e só uma pessoa desfaz na interface.
+    # Bot nunca escreve isso — a skill já dizia "só com OK humano"; aqui é código.
+    if alvo in ("CANCELLED", "DUPLICATE"):
+        return ("pulado", f"TUPLE intocado: {alvo} é terminal e só humano aplica")
+
     # BLOCKED por limitação do ambiente local (build sem credencial, feed privado,
     # VPN) não é impedimento do trabalho: pintar o card de vermelho alarma o time
     # inteiro por algo que é da máquina, não da task. Fica só no manifest.
     if alvo == "BLOCKED" and re.search(
-        r"\b(feed privado|sem PAT|E401|credencia|VPN|nao autentica|não autentica|"
-        r"ambiente local|build nao roda|build não roda|waiver)\b", motivo, re.I
+        r"\b(build|lint|feed privado|sem PAT|E401|credencia|VPN|nao autentica|"
+        r"não autentica|ambiente local|waiver|node_modules|dev server)\b", motivo, re.I
     ):
-        return ("pulado", f"TUPLE intocado: BLOCKED por limitação de ambiente, não do trabalho")
+        return ("pulado", "TUPLE intocado: BLOCKED por ambiente local, não pelo trabalho")
 
     try:
         ctx = _tuple(root, "contexto")
