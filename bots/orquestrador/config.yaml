@@ -41,6 +41,10 @@ approvals:
     - "*hermes -p *"
     - "*hermes chat*"
 
+telegram:
+  require_mention: false
+  exclusive_bot_mentions: true
+
 plugins:
   enabled:
     - hermes-gates

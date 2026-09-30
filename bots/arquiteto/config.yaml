@@ -78,6 +78,10 @@ approvals:
     - "*hermes gateway*"
     - "*schtasks*"
 
+telegram:
+  require_mention: true
+  exclusive_bot_mentions: true
+
 mcp_servers:
   drawio:
     command: npx

@@ -271,6 +271,13 @@ browser:
     provedor = b.get("provider", "kiro-acp")
     # o plugin dos gates só no @orquestrador: é o Telegram dele que fala com o humano
     plugins = '\nplugins:\n  enabled:\n    - hermes-gates\n' if name == "orquestrador" else ""
+    # No grupo do Telegram so o @orquestrador responde mensagem sem @: sem isto os tres
+    # respondiam a mesma frase e o custo triplicava. Os outros so acordam por @nome ou por
+    # resposta a mensagem deles. `exclusive_bot_mentions` faz o @orquestrador ficar quieto
+    # quando a mensagem cita outro bot — o Hermes checa isso ANTES do require_mention.
+    responde_tudo = "false" if name == "orquestrador" else "true"
+    telegram = (f"\ntelegram:\n  require_mention: {responde_tudo}\n"
+                "  exclusive_bot_mentions: true\n")
     (d / "config.yaml").write_text(f"""# Bot @{name} — gerado por scripts/gen_bots.py
 model:
   default: "{modelo}"
@@ -293,7 +300,7 @@ platform_toolsets:
 approvals:
   deny:
 {yaml_list([f'"{x}"' for x in HERMES_DENY + b.get('hermes_deny_extra', [])], 4)}
-{plugins}{browser}{mcp}""", encoding="utf-8", newline="\n")
+{telegram}{plugins}{browser}{mcp}""", encoding="utf-8", newline="\n")
 
     # profile.yaml — SEM ele o Hermes não reconhece o profile como Bot Mode e não injeta
     # o `message_agent`: os bots simplesmente não conseguem se chamar por @menção. Quem
