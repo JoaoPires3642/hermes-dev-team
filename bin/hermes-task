@@ -95,6 +95,7 @@ TRANSICOES = {
     ("AWAITING_APPROVAL", "SPECIFYING"): (H, {"issues": "texto", "via": "texto"}),        # GATE 1
     ("AWAITING_APPROVAL", "CLOSED"): (H, {"motivo": "texto"}),
     ("AWAITING_APPROVAL", "TRIAGED"): (H, {"motivo": "texto"}),                          # GATE 1: ajustar
+    ("SPECIFYING", "CLOSED"): ({"po"}, {"issues": "texto"}),        # só CALL-N: issues criadas e passadas adiante
     ("SPECIFYING", "AWAITING_SPEC_APPROVAL"): ({"techlead"}, {"story": "arquivo", "dor": "ok"}),
     ("AWAITING_SPEC_APPROVAL", "SPEC_APPROVED"): (H, {"via": "texto"}),                  # GATE 2
     ("AWAITING_SPEC_APPROVAL", "SPECIFYING"): (H, {"motivo": "texto"}),
@@ -331,6 +332,8 @@ def cmd_move(a):
             quem, exig = regra
             if por not in quem:
                 negar(f"quem pode: {', '.join(sorted(quem))}")
+            if (de, para) == ("SPECIFYING", "CLOSED") and not a.key.upper().startswith("CALL-"):
+                negar("só a tarefa de uma call (CALL-N) fecha assim; issue fecha no GATE 3")
             exig = dict(exig)
             if (de, para) == ("SPECIFYING", "AWAITING_SPEC_APPROVAL"):
                 if DEVS <= set(m["agentes"]):
@@ -389,7 +392,10 @@ def cmd_move(a):
 
     audit(root, tipo="transicao", task=a.key, de=de, para=m["estado"], por=por, evidencias=ev,
           circuit_breaker=disparou or None)
-    print(f"{de} → {m['estado']}  ·  TUPLE: mova para {TUPLE_STATUS[m['estado']]}")
+    if a.key.upper().startswith("CALL-"):
+        print(f"{de} → {m['estado']}  ·  (tarefa da call: não existe no TUPLE, não mova nada lá)")
+    else:
+        print(f"{de} → {m['estado']}  ·  TUPLE: mova para {TUPLE_STATUS[m['estado']]}")
     if disparou:
         print(f"CIRCUIT BREAKER: {m['voltas_qa']} voltas QA⇄DEV. Tarefa BLOCKED — alerte o humano "
               "no Telegram com o histórico e não reabra o loop.", file=sys.stderr)

@@ -35,6 +35,8 @@ O @pm criou as issues e te chama de volta, na mesma sessão (você já tem o con
   (seções 1, 2, 4 e 11–13 do template BMAD), com os CAs da proposta aprovada.
 - Passa cada story ao @techlead, **uma rodada por issue**, com handoff na pasta da issue:
   `hermes-delegar techlead "$P" <ISSUE-KEY> "$P/.hermes/tasks/<ISSUE-KEY>/handoffs/<NN>-po-para-techlead.md"`.
+- Por último, feche a call — ela já virou issues e cada uma segue sozinha:
+  `hermes-task move "$P" CALL-N CLOSED --by po --ev issues=<KEY1,KEY2,...>`.
 
 ## Regras
 
@@ -50,5 +52,6 @@ O @pm criou as issues e te chama de volta, na mesma sessão (você já tem o con
 
 ## hermes-task
 
-Você move um estado só: `TRIAGED → AWAITING_APPROVAL`, com a proposta. Os demais artefatos
+Você move dois estados da call: `TRIAGED → AWAITING_APPROVAL` (a proposta) e, no fim,
+`SPECIFYING → CLOSED` (as issues criadas). Os demais artefatos
 (PRD, épico, esqueleto da story) entram como evidência na transição do @techlead.

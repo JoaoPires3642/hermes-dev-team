@@ -3,6 +3,7 @@
 
   hermes-delegar <bot> <projeto> <KEY> <handoff.md> [--esperar] [--timeout MIN]
   hermes-delegar status <projeto> [<KEY>]
+  hermes-delegar reconciliar                # rodadas "rodando" cujo processo morreu → perdida + aviso
 
 Por que isto existe
 -------------------
@@ -289,6 +290,11 @@ def aviso_final(reg, m):
         pr = (m.get("artefatos") or {}).get("pr") or "?"
         return (f"✅ GATE 3 · {cab} passou no QA (DoD aceito pelo hermes-task).\n\n"
                 f"PR para você revisar e fazer o merge: {pr}\n\n{resposta[-1200:]}"), None
+    if depois == "CLOSED" and antes != depois and key.upper().startswith("CALL-"):
+        ult = (m.get("historico") or [{}])[-1]
+        issues = (ult.get("evidencias") or {}).get("issues") or "?"
+        return (f"✅ {cab} concluída: issues {issues} criadas e com o @techlead.\n\n"
+                f"{resposta[-1200:]}"), None
     if depois == "BLOCKED" and antes != depois:
         ult = (m.get("historico") or [{}])[-1]
         motivo = (ult.get("evidencias") or {}).get("motivo") or ult.get("por") or "?"
@@ -387,7 +393,7 @@ def supervisionar(arq):
     cmd = [hermes_bin(), "-p", bot, "chat", "--in", str(root),
            "--continue", reg["sessao"], "--create-if-missing",
            "--query-file", reg["prompt"], "--oneshot", "-Q"]
-    reg.update(status="rodando", inicio=agora(), cmd=cmd)
+    reg.update(status="rodando", inicio=agora(), cmd=cmd, supervisor_pid=os.getpid())
     gravar(arq, reg)
     extra = {"start_new_session": True} if sys.platform != "win32" else \
         {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
@@ -450,12 +456,62 @@ def destacar(arq):
                          stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
 
 
+FOLGA_AGENDADO = 120   # s: "agendado" sem supervisor depois disto não vai mais começar
+
+
+def reconciliar_arquivo(f):
+    """Rodada marcada "rodando"/"agendado" cujo supervisor não existe mais (máquina
+    reiniciou, processo morto) nunca terminaria sozinha: vira "perdida" e avisa. Sem
+    isto a issue fica parada com cara de que alguém está trabalhando nela."""
+    try:
+        r = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if r.get("status") not in ("rodando", "agendado"):
+        return None
+    if r.get("status") == "rodando" and vivo(r.get("supervisor_pid")):
+        return None
+    if r.get("status") == "agendado":
+        try:
+            idade = time.time() - dt.datetime.fromisoformat(r["criado"]).timestamp()
+        except (KeyError, ValueError):
+            idade = FOLGA_AGENDADO + 1
+        if idade < FOLGA_AGENDADO:
+            return None
+    root = Path(r["projeto"])
+    estado, _ = ler_estado(root / ".hermes" / "tasks" / r["key"] / "manifest.yaml")
+    r.update(status="perdida", fim=agora(), estado_depois=estado)
+    Path(r["trava"]).unlink(missing_ok=True) if r.get("trava") else None
+    r["avisado"] = avisar_agrupado(
+        f"{r['bot']}:perdida", r["key"],
+        f"⚠️ [{root.name}] {r['key']} · a rodada do @{r['bot']} morreu sem terminar (máquina "
+        f"reiniciou ou o processo caiu). A tarefa segue em {estado}. Refaça o último passo "
+        f"— um /aprovar repetido retoma o disparo, quando é o caso.")
+    gravar(f, r)
+    audit(root, tipo="delegar-perdida", task=r["key"], bot=r["bot"], estado=estado)
+    return r
+
+
+def cmd_reconciliar(_a=None):
+    base = cfg("HERMES_PROJETOS")
+    if not base:
+        die("HERMES_PROJETOS não definido", USO)
+    n = 0
+    for f in Path(base).expanduser().glob("*/.hermes/runs/*/*.json"):
+        if reconciliar_arquivo(f):
+            n += 1
+            print(f"perdida: {f}")
+    print(f"{n} rodada(s) perdida(s)", file=sys.stderr)
+    return OK
+
+
 def cmd_status(a):
     root = projeto(a.projeto)
     base = root / ".hermes" / "runs"
     alvos = [base / a.key] if a.key else sorted(p for p in base.glob("*") if p.is_dir())
     for d in alvos:
         for f in sorted(d.glob("*.json"))[-10:]:
+            reconciliar_arquivo(f)
             r = json.loads(f.read_text(encoding="utf-8"))
             print(f"{r['key']:14} @{r['bot']:12} {r['status']:9} {r['estado_antes'] or '?'} → "
                   f"{r['estado_depois'] or '…'}  {r['criado']}")
@@ -465,6 +521,8 @@ def cmd_status(a):
 def main(argv):
     if argv[:1] == ["_supervisionar"]:
         return supervisionar(argv[1])
+    if argv[:1] == ["reconciliar"]:
+        return cmd_reconciliar()
     if argv[:1] == ["status"]:
         ap = argparse.ArgumentParser(prog="hermes-delegar status")
         ap.add_argument("projeto"); ap.add_argument("key", nargs="?")

@@ -207,6 +207,7 @@ schtasks //Create //F //SC MINUTE //MO 15 //TN "hermes-dev-team - openwhispr-not
   || warn "não consegui agendar: rode no cmd -> schtasks /Create /F /SC MINUTE /MO 15 /TN \"hermes-dev-team - openwhispr-notes\" /TR \"$BIN_WIN\\hermes-calls.cmd\""
 
 say "Pronto: ${BOTS[*]}"
+python "$REPO/bin/call-dispatch" doctor 2>/dev/null | grep -E "✗|⚠|problema" || true
 cat <<EOF
 
 Pendente neste ambiente:

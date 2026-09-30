@@ -3,6 +3,7 @@
 
   call-dispatch varrer                                   # o openwhispr-notes chama (--ao-criar)
   call-dispatch pendentes                                # o que espera por você
+  call-dispatch doctor [--enviar]                        # confere a instalação inteira
   call-dispatch cliente  <CALL-N> <projeto>   --via telegram:<uid>:<msg>
   call-dispatch novo     <CALL-N> <nome>      --via ...  # cliente novo: cria a pasta e tria
   call-dispatch ignorar  <CALL-N>             --via ...
@@ -275,6 +276,11 @@ def cmd_varrer(_a):
             c["avisada"] = avisar(pergunta(c))
             gravar(f, c)
             print(f"{c['id']}: pergunta reenviada ({'ok' if c['avisada'] else 'falhou de novo'})")
+    # rodada que morreu no meio (reboot) nunca terminaria sozinha: o job de 15 min acha
+    try:
+        subprocess.run(irmao("hermes-delegar") + ["reconciliar"], capture_output=True, timeout=120)
+    except (Negado, OSError, subprocess.SubprocessError):
+        pass
     print(f"{novas} call(s) nova(s)", file=sys.stderr)
     return OK
 
@@ -604,12 +610,132 @@ def cmd_pendentes(_a):
     return OK
 
 
+def cmd_doctor(a):
+    """Tudo que já quebrou em silêncio nesta instalação, conferido de uma vez: Discord
+    derrubando o gateway, python3 sem PyYAML no terminal dos bots, Telegram sem
+    usuário autorizado ou sem canal, pasta de teste esquecida no .env, kiro-cli ausente."""
+    falhas = avisos = 0
+
+    def linha(ok, texto, grave=True, ruim=None):
+        """`texto` descreve o estado bom; `ruim`, se dado, é o que aparece quando falha."""
+        nonlocal falhas, avisos
+        texto = texto if ok or not ruim else ruim
+        if ok:
+            print(f"✓ {texto}")
+        elif grave:
+            falhas += 1
+            print(f"✗ {texto}")
+        else:
+            avisos += 1
+            print(f"⚠ {texto}")
+
+    def rodar_ok(cmd, timeout=30):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            return r.returncode == 0, (r.stdout + r.stderr).strip()
+        except (OSError, subprocess.SubprocessError) as e:
+            return False, str(e)
+
+    print("— pastas")
+    base = cfg("HERMES_PROJETOS")
+    if not base:
+        linha(False, "HERMES_PROJETOS não definido (ambiente nem ~/.hermes/.env)")
+    else:
+        todos = projetos()
+        linha(Path(base).expanduser().is_dir(), f"HERMES_PROJETOS = {base} ({len(todos)} projeto(s))")
+        linha("hermes-teste" not in base, "HERMES_PROJETOS fora da área de teste", grave=False,
+              ruim="HERMES_PROJETOS aponta para a área de TESTE (troque pela pasta real no ~/.hermes/.env)")
+        for pj in todos:
+            falta = falta_configurar(pj)
+            linha(not falta, f"projeto {pj.name}: " + ("pronto" if not falta else "falta " + "; ".join(
+                x.split(" em ")[0].split(" (")[0] for x in falta)), grave=False)
+    ib = inbox()
+    linha(ib.is_dir(), f"calls em {ib}", grave=False, ruim=f"pasta de calls {ib} não existe (ainda)")
+    linha("hermes-teste" not in str(ib), "calls fora da área de teste", grave=False,
+          ruim="HERMES_CALLS aponta para a área de TESTE (apague a linha no ~/.hermes/.env)")
+    try:
+        template_projeto()
+        linha(True, "templates/projeto encontrado (cliente novo)")
+    except Negado as e:
+        linha(False, str(e), grave=False)
+
+    print("— scripts")
+    for nome in ("hermes-task", "hermes-delegar", "call-dispatch", "openwhispr-notes"):
+        achado = shutil.which(nome)
+        if not achado:
+            linha(False, f"{nome} não está no PATH")
+            continue
+        py = Path(achado).read_text(encoding="utf-8", errors="replace").splitlines()[0][2:].split()
+        if py and py[0].endswith("env"):
+            py = py[1:]
+        ok, _ = rodar_ok(py + ["-c", "import yaml"]) if py and not achado.endswith(".cmd") else (True, "")
+        linha(ok, f"{nome}: Python com PyYAML" if ok else
+              f"{nome}: o Python de {achado} não tem PyYAML (rode o install.sh de novo)")
+    linha(bool(shutil.which("kiro-cli")), "kiro-cli instalado", grave=False,
+          ruim="kiro-cli não instalado: @techlead, devs e @qa não rodam nesta máquina")
+    ow = shutil.which("openwhispr-notes")
+    ok, saida = rodar_ok([ow, "onde"]) if ow else (False, "")
+    linha(ok, "OpenWhispr: " + (saida.splitlines()[0] if ok and saida else "banco não encontrado"), grave=False)
+
+    print("— Telegram (profile " + AVISO_PROFILE + ")")
+    envf = raiz_hermes() / "profiles" / AVISO_PROFILE / ".env"
+    chaves = {}
+    if envf.is_file():
+        for l in envf.read_text(encoding="utf-8", errors="replace").splitlines():
+            k, _, v = l.partition("=")
+            chaves[k.strip()] = v.strip()
+    linha(bool(chaves.get("TELEGRAM_BOT_TOKEN")), "TELEGRAM_BOT_TOKEN definido")
+    linha(bool(autorizados()), "TELEGRAM_ALLOWED_USERS definido (sem ele o bot ignora você)")
+    linha(bool(chaves.get("TELEGRAM_HOME_CHANNEL")), "TELEGRAM_HOME_CHANNEL definido (para onde vão gates e avisos)")
+    prof = raiz_hermes() / "profiles" / AVISO_PROFILE
+    linha((prof / "plugins" / "hermes-gates" / "__init__.py").is_file(), "plugin hermes-gates instalado")
+    cfgy = {}
+    try:
+        cfgy = yaml.safe_load((prof / "config.yaml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        pass
+    linha("hermes-gates" in ((cfgy.get("plugins") or {}).get("enabled") or []), "plugin hermes-gates habilitado")
+    if a.enviar:
+        linha(avisar("🩺 call-dispatch doctor: se você está lendo isto, os avisos chegam."), "mensagem de teste enviada")
+
+    print("— bots")
+    for bot in ("orquestrador", "po", "pm", "techlead", "dev-front", "dev-back", "qa"):
+        try:
+            c = yaml.safe_load((raiz_hermes() / "profiles" / bot / "config.yaml").read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            linha(False, f"@{bot}: profile não instalado")
+            continue
+        deny = " ".join((c.get("approvals") or {}).get("deny") or [])
+        linha("call-dispatch" in deny and "humano" in deny,
+              f"@{bot}: approvals.deny bloqueia --by humano e call-dispatch")
+
+    print("— serviços")
+    if sys.platform == "win32":
+        ok, _ = rodar_ok(["schtasks", "/Query", "/TN", "hermes-dev-team - openwhispr-notes"])
+        linha(ok, "tarefa agendada das calls existe")
+    elif shutil.which("systemctl"):
+        for unit, nome in (("hermes-gateway", "gateway do Hermes"), ("hermes-calls.timer", "job das calls (15 min)")):
+            ok, saida = rodar_ok(["systemctl", "--user", "is-active", unit])
+            linha(ok, f"{nome}: {saida or 'inativo'}")
+    envg = raiz_hermes() / ".env"
+    if envg.is_file():
+        tem_discord = any(l.startswith("DISCORD_BOT_TOKEN=") and l.split("=", 1)[1].strip()
+                          for l in envg.read_text(encoding="utf-8", errors="replace").splitlines())
+        linha(not tem_discord, "Discord desligado", grave=False,
+              ruim="Discord configurado — sem o 'Message Content Intent' ele derruba o gateway inteiro")
+
+    print(f"\n{falhas} problema(s), {avisos} aviso(s).")
+    return ERRO if falhas else OK
+
+
 def main(argv):
     ap = argparse.ArgumentParser(prog="call-dispatch", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     s = ap.add_subparsers(dest="cmd", required=True)
     s.add_parser("varrer").set_defaults(f=cmd_varrer)
     s.add_parser("pendentes").set_defaults(f=cmd_pendentes)
+    x = s.add_parser("doctor"); x.add_argument("--enviar", action="store_true", help="manda uma mensagem de teste")
+    x.set_defaults(f=cmd_doctor)
     x = s.add_parser("cliente"); x.add_argument("id"); x.add_argument("projeto")
     x.add_argument("--via", required=True); x.set_defaults(f=cmd_cliente)
     x = s.add_parser("novo"); x.add_argument("id"); x.add_argument("nome", nargs="*")

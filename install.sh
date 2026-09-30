@@ -209,6 +209,7 @@ else
 fi
 
 say "Pronto: ${BOTS[*]}"
+call-dispatch doctor 2>/dev/null | grep -E "✗|⚠|problema" || true
 cat <<EOF
 
 Próximos passos (uma vez por máquina):

@@ -78,7 +78,8 @@ Depois, uma vez por máquina:
    - `.kiro/steering/` — arquitetura, segurança, padrões
    - `.hermes/tuple.env` — API key do TUPLE **deste projeto** (`chmod 600`)
 
-Atualizar: `git pull && ./install.sh` (memórias e sessões dos bots ficam).
+Atualizar: `git pull && ./install.sh` (memórias e sessões dos bots ficam). Depois,
+`call-dispatch doctor` — mostra o que ficou faltando.
 
 ## Estrutura
 
@@ -97,6 +98,7 @@ bin/hermes-task      manifest + máquina de estados + DoD + circuit breaker (reg
 bin/meetily-notes    exporta as calls da Meetily (SQLite local) como Markdown por cliente
 bin/openwhispr-notes exporta as calls do OpenWhispr (SQLite local, com quem-falou) e chama o call-dispatch
 bin/call-dispatch    call nova → "de qual cliente?" no Telegram → sessão do @orquestrador; registra os gates
+                     `call-dispatch doctor [--enviar]` confere a instalação inteira (pastas, Telegram, plugin, bots, serviços)
 bin/hermes-delegar   dá trabalho a outro bot numa sessão NOVA por tarefa, na pasta do cliente (confere estado e gate)
 bin/bot-chat-reset   zera a Bot Chat (caixa de recados) de um bot
 plugins/hermes-gates/ /cliente /novo /aprovar /ajustar /rejeitar /ignorar /pendentes no Telegram (prontos para tocar), sem passar pelo modelo

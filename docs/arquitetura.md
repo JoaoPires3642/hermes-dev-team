@@ -43,7 +43,8 @@
   dentro de `$HERMES_PROJETOS`, handoff na pasta da tarefa, e **é a vez daquele bot** no
   estado do manifest (ninguém chega no dev antes do GATE 2). Roda destacado; um supervisor
   grava o resultado em `<projeto>/.hermes/runs/<KEY>/` e avisa no Telegram gate, falha,
-  timeout e `BLOCKED`.
+  timeout e `BLOCKED`. Rodada que morre no meio (reboot) é achada pelo job de 15 min
+  (`hermes-delegar reconciliar`), vira `perdida` e avisa. Falha igual em 10 min = um aviso só.
 - **Gates pelo Telegram, registrados por código.** O humano responde com comando —
   `/cliente`, `/aprovar`, `/ajustar`, `/rejeitar`, `/ignorar`, `/pendentes` — e o plugin
   `hermes-gates` (só no profile do @orquestrador) roda no gateway **depois da autorização e
