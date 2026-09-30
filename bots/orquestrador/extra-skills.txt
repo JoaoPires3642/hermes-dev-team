@@ -1,1 +1,4 @@
 transcricao-crua
+orquestrar-rodadas-bots
+auditoria-plataforma-bots
+onboarding-projeto-plataforma

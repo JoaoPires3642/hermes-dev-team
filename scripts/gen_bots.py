@@ -64,12 +64,18 @@ BOTS = {
         "model": "claude-opus-5", "provider": "anthropic",  # le entrada externa nao confiavel: precisa julgar injecao e nao inventar cliente
         "desc": "Porta de entrada: numa sessão por call (aberta pelo call-dispatch), entende a conversa com o cliente, escreve o resumo e passa ao @po. No Telegram, orienta e aponta os comandos dos gates.",
         "pet": "octopus",
+        # escritas pelo proprio @orquestrador operando hoje, revisadas linha a linha antes
+        # de entrar: nenhuma se da autoridade, e as tres restringem. A autoria dizia
+        # "Joao Pires" — corrigida, porque skill de bot assinada com nome de humano passa
+        # por regra aprovada quando e o bot registrando o que aprendeu.
         # terminal: sem ele não roda tuple-api nem hermes-task, e o desenho exige os dois
         # (GATE 1, criar issue, registrar aprovação). É o bot que ingere transcrição de
         # cliente, então o que limita o estrago são as regras do próprio git-bot/hermes-task.
         "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
         # só ele lê entrada externa bruta, então só ele precisa saber ler ASR
-        "extra_skills": ["transcricao-crua"],
+        "extra_skills": ["transcricao-crua", "orquestrar-rodadas-bots",
+                         "auditoria-plataforma-bots",
+                         "onboarding-projeto-plataforma"],
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [
