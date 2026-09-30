@@ -75,7 +75,8 @@ BOTS = {
         # só ele lê entrada externa bruta, então só ele precisa saber ler ASR
         "extra_skills": ["transcricao-crua", "orquestrar-rodadas-bots",
                          "auditoria-plataforma-bots",
-                         "onboarding-projeto-plataforma"],
+                         "onboarding-projeto-plataforma",
+                         "instalar-plataforma-bots"],
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [

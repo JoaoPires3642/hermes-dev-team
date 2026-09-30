@@ -1,7 +1,7 @@
 ---
 name: auditoria-plataforma-bots
 description: Auditar a plataforma de bots — diagrama vs o disco.
-version: 1.1.0
+version: 1.2.0
 author: Hermes Orquestrador
 metadata:
   hermes:
@@ -71,6 +71,38 @@ O bot consegue reiniciá-lo. Duas condições, e é a segunda que engana:
 A prova de que reiniciou é `start_time` novo no `gateway_state.json` — não o `exit 0` do
 comando, e não o log do lançador.
 
+## Aprendeu algo auditando? Espelhe a skill no repo ANTES de terminar o turno
+
+Numa sessão de bot o `skill_manage` escreve em `profiles/<bot>/skills/` — não há como
+editar a skill em outro lugar. E o instalador do time faz `rm -rf` + `cp -r` de
+`shared-skills/`/`extra-skills/` a cada execução: **a edição que fica só no profile morre
+na próxima instalação.** Não é opcional e não é tarefa do humano lembrar; faz parte do
+mesmo turno em que você patcheia.
+
+1. Ache o lado do repo: a skill mora em `shared-skills/<nome>/` (todos os bots) ou
+   `extra-skills/<nome>/` (só quem lista em `bots/<bot>/extra-skills.txt`).
+2. Copie **normalizando para LF**: arquivo escrito no profile sai com CRLF e o
+   `.gitattributes` do repo força `eol=lf` — CRLF ali quebra os scripts do próprio repo.
+   `tr -d '\r' < "$PROFILE/<nome>/SKILL.md" > "extra-skills/<nome>/SKILL.md"`
+3. **Suba a `version:` do frontmatter** nos dois lados, senão ninguém vê que mudou.
+4. Commite e faça push. O repo da plataforma **não é repo de cliente**: não tem `AGENTS.md`
+   nem KEY, então `git-bot commit --key` (que exige `Refs: <KEY>`) não se aplica — vai `git`
+   direto. Continuam valendo: **nenhuma marca de bot na mensagem**, identidade **local**
+   (nunca `--global`), e `main` só com autorização explícita do humano naquele pedido.
+   - **E-mail ditado pelo humano: confira contra `git log -3 --format="%an <%ae>"`** antes de
+     commitar. Um dígito trocado passa sem erro, fica no histórico para sempre e o commit não
+     vincula à conta dele. Divergiu → confirme qual vale, citando os dois.
+   - **Mensagem longa vai por `git commit -F <arquivo>`**, nunca por heredoc: o
+     `approvals.deny` casa substring do comando **inteiro**, então o nome de um helper citado
+     no corpo bloqueia o próprio commit. Tire o texto do comando em vez de reescrever a
+     mensagem para escapar do filtro.
+5. Confirme por `diff` que repo e profile são iguais, comparando sem CR — e liste os arquivos
+   dos dois lados (`search_files` com `target='files'`) para achar referência que existe só
+   no profile.
+
+Mesma regra para os arquivos de apoio (`references/`, `scripts/`), que é o que mais
+escapa: o `SKILL.md` você lembra, a referência nova não.
+
 ## Armadilhas
 
 - **Quando a própria lacuna impede criar issue, diga as duas razões** (falta o OK do GATE 1 **e**
@@ -82,9 +114,10 @@ comando, e não o log do lançador.
 - **Antes de reportar segredo exposto em arquivo, confirme com uma busca por padrão.** A leitura de
   arquivo mascara trechos que parecem credencial (um `Bearer %s` legítimo aparece mascarado), e
   você reportaria um bug que não existe.
-- **Não edite skill dentro de `profiles/<bot>/skills/`.** O instalador do time faz `rm -rf` + `cp -r`
-  a partir do repo em cada execução: a alteração desaparece na próxima instalação. A fonte é o repo
-  (`shared-skills/`, `extra-skills/`) — e skill de nome novo, fora dessas listas, sobrevive.
+- **Skill editada numa sessão de bot vive no profile e o instalador a apaga.** A fonte é o repo
+  (`shared-skills/`, `extra-skills/`); espelhe no mesmo turno, pela seção acima. Skill de nome
+  novo, fora dessas duas árvores, é a única que sobrevive sem espelhamento — e mesmo assim não
+  chega aos outros bots.
 - **Não registre como pendência o que é escolha do humano.** Nota sem cliente, projeto ainda não
   criado e chave de API ausente são decisões dele, não bug da plataforma: entram como dúvida.
 - **Helper que existe pode ainda assim falhar em toda chamada.** Antes de marcar um helper como
