@@ -211,9 +211,14 @@ def enviar(msg: str, html: Path | None, destino: str) -> bool:
         fh.write(corpo)
         arq = fh.name
     try:
-        r = rodar([hermes(), "send", "--to", destino, "--file", arq], timeout=300)
+        # `-p PERFIL` nao e opcional: sem ele o `hermes send` procura o token no .env
+        # GLOBAL e responde "Platform 'telegram' is not configured", porque o token
+        # mora no .env do profile. (O `*hermes -p *` do approvals.deny e do BOT; este
+        # script nao e o bot.)
+        cmd = [hermes(), "-p", PERFIL, "send", "--to", destino, "--file", arq]
+        r = rodar(cmd, timeout=300)
         if r.returncode != 0:
-            r = rodar([hermes(), "send", "--to", destino, "--file", arq], timeout=300)
+            r = rodar(cmd, timeout=300)
         if r.returncode != 0:
             print(f"  envio falhou: {(r.stderr or r.stdout or '').strip()[:200]}",
                   file=sys.stderr)
