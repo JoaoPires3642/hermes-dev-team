@@ -83,3 +83,5 @@ mcp_servers:
     command: npx
     args:
       - '@drawio/mcp'
+  codebase-memory-mcp:
+    command: codebase-memory-mcp

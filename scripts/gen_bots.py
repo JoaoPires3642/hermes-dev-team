@@ -121,7 +121,13 @@ BOTS = {
         "kiro_allowed": ["read"],
         "kiro_rules": [],
         # diagrama editavel de verdade, em vez de XML escrito a mao
-        "mcp_servers": {"drawio": {"command": "npx", "args": ["@drawio/mcp"]}},
+        # drawio: diagrama editavel. codebase-memory-mcp: o grafo do codigo, que e o
+        # que responde as secoes 4 e 7 do SOUL dele -- dependencia entre modulos,
+        # limite de responsabilidade, o que a mudanca alcanca. O diff diz o que mudou;
+        # o grafo diz quem depende daquilo. Sem ele o relatorio lista arquivos.
+        # O comando vai sem caminho: o instalador troca pelo .exe absoluto no Windows.
+        "mcp_servers": {"drawio": {"command": "npx", "args": ["@drawio/mcp"]},
+                        "codebase-memory-mcp": {"command": "codebase-memory-mcp"}},
     },
     "techlead": {
         "extra_skills": ["karpathy-guidelines", "codebase-memory"],

@@ -153,6 +153,16 @@ for b in "${BOTS[@]}"; do
     rm -rf "$prof/plugins/model-providers/kiro-acp"
   fi
 
+  # O config.yaml do repo cita `codebase-memory-mcp` sem caminho, para o arquivo ser
+  # portatil. Aqui vira o .exe absoluto: o gateway nao herda o PATH do Git Bash, entao
+  # o nome solto nao resolveria e o MCP subiria quebrado -- calado, porque MCP que nao
+  # sobe nao derruba o bot, so some das ferramentas.
+  if [[ -f "$CBM_WIN" ]] && grep -q "command: codebase-memory-mcp" "$prof/config.yaml" 2>/dev/null; then
+    tmp=$(mktemp)
+    awk -v exe="$CBM_WIN" '{sub(/command: codebase-memory-mcp$/, "command: \"" exe "\""); print}' \
+      "$prof/config.yaml" >"$tmp" && cat "$tmp" >"$prof/config.yaml" && rm -f "$tmp"
+  fi
+
   # gates humanos pelo Telegram — só no @orquestrador (config.yaml já habilita)
   if [[ "$b" == "orquestrador" ]]; then
     rm -rf "$prof/plugins/hermes-gates"; mkdir -p "$prof/plugins"
