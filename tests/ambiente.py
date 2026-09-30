@@ -81,7 +81,7 @@ class Ambiente:
         self.fake = self.raiz / "fake"
         for d in (self.bin, self.home, self.projetos, self.calls, self.fake, self.raiz / "casa"):
             d.mkdir(parents=True)
-        for nome in ("call-dispatch", "hermes-delegar", "hermes-task"):
+        for nome in ("call-dispatch", "hermes-delegar", "hermes-task", "resumo-do-dia"):
             shutil.copy(REPO / "bin" / nome, self.bin / nome)
         falso = self.bin / "hermes"
         falso.write_text(HERMES_FALSO.format(python=sys.executable), encoding="utf-8")
@@ -144,6 +144,20 @@ class Ambiente:
 
     def dispatch(self, *args, **kw):
         return self.rodar("call-dispatch", *args, **kw)
+
+    def resumo(self, *args, **kw):
+        return self.rodar("resumo-do-dia", *args, **kw)
+
+    def repo_com_commits(self, projeto, *mensagens):
+        repo = projeto / "repos" / "app"
+        repo.mkdir(parents=True)
+        g = ["git", "-C", str(repo), "-c", "user.name=Teste", "-c", "user.email=t@t"]
+        subprocess.run(g[:3] + ["init", "-q"], check=True)
+        for i, msg in enumerate(mensagens):
+            (repo / f"f{i}.txt").write_text(msg)
+            subprocess.run(g + ["add", "."], check=True)
+            subprocess.run(g + ["commit", "-q", "-m", msg], check=True)
+        return repo
 
     def task(self, *args):
         return self.rodar("hermes-task", *args)

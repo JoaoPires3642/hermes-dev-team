@@ -715,8 +715,11 @@ def cmd_doctor(a):
     if sys.platform == "win32":
         ok, _ = rodar_ok(["schtasks", "/Query", "/TN", "hermes-dev-team - openwhispr-notes"])
         linha(ok, "tarefa agendada das calls existe")
+        ok, _ = rodar_ok(["schtasks", "/Query", "/TN", "hermes-dev-team - resumo-do-dia"])
+        linha(ok, "tarefa agendada do resumo do dia existe", grave=False)
     elif shutil.which("systemctl"):
-        for unit, nome in (("hermes-gateway", "gateway do Hermes"), ("hermes-calls.timer", "job das calls (15 min)")):
+        for unit, nome in (("hermes-gateway", "gateway do Hermes"), ("hermes-calls.timer", "job das calls (15 min)"),
+                           ("hermes-daily.timer", "resumo do dia (17h, dias úteis)")):
             ok, saida = rodar_ok(["systemctl", "--user", "is-active", unit])
             linha(ok, f"{nome}: {saida or 'inativo'}")
     envg = raiz_hermes() / ".env"

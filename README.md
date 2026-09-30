@@ -71,7 +71,9 @@ Depois, uma vez por máquina:
    sincronização); `HERMES_CALLS` muda isso.
 6. Job das calls: o instalador já agenda (`hermes-calls.timer` no Linux; tarefa
    `hermes-dev-team - openwhispr-notes` no Windows) — a cada 15 min,
-   `openwhispr-notes novas --ao-criar "call-dispatch varrer"`. Routine no Desktop, só a do
+   `openwhispr-notes novas --ao-criar "call-dispatch varrer"`. E o **resumo do dia** às 17h dos dias
+   úteis (`hermes-daily.timer` / tarefa `hermes-dev-team - resumo-do-dia`; `HERMES_DAILY_HORA` muda).
+   Routine no Desktop, só a do
    @pm: dias úteis 9h — "resumo do board: IN_PROGRESS parado, BLOCKED, IN_REVIEW".
 7. Projeto novo: `cp -r templates/projeto $HERMES_PROJETOS/<Projeto>` (os repos ficam dentro) e preencher:
    - `AGENTS.md` — IDs do TUPLE, repos, branches, restrições (sem segredos)
@@ -101,6 +103,7 @@ bin/call-dispatch    call nova → "de qual cliente?" no Telegram → sessão do
                      `call-dispatch doctor [--enviar]` confere a instalação inteira (pastas, Telegram, plugin, bots, serviços)
 bin/hermes-delegar   dá trabalho a outro bot numa sessão NOVA por tarefa, na pasta do cliente (confere estado e gate)
 bin/bot-chat-reset   zera a Bot Chat (caixa de recados) de um bot
+bin/resumo-do-dia    17h dos dias úteis: o que aconteceu em cada cliente, em linguagem leiga, pelo bot do @pm (para a daily)
 plugins/hermes-gates/ /cliente /novo /aprovar /ajustar /rejeitar /ignorar /pendentes no Telegram (prontos para tocar), sem passar pelo modelo
 bin/git-bot          git do time com as regras em código (sem force, rebase antes do push)
 templates/projeto/   AGENTS.md, docs/, memory/, .kiro/steering/, .hermes/tuple.env.example de um projeto novo

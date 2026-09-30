@@ -15,6 +15,7 @@ ALL_BOTS=(orquestrador po pm techlead dev-front dev-back qa)
 BOTS=("${@:-${ALL_BOTS[@]}}")
 HERMES_ROOT="${HERMES_HOME:-$HOME/.hermes}"
 BIN_DIR="$HOME/.local/bin"
+DAILY_HORA="${HERMES_DAILY_HORA:-17:00}"   # resumo do dia, dias úteis
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[aviso]\033[0m %s\n' "$*" >&2; }
@@ -60,12 +61,13 @@ install -m 755 "$REPO/bin/bot-chat-reset" "$BIN_DIR/bot-chat-reset"
 install -m 755 "$REPO/bin/openwhispr-notes" "$BIN_DIR/openwhispr-notes"
 install -m 755 "$REPO/bin/hermes-delegar" "$BIN_DIR/hermes-delegar"
 install -m 755 "$REPO/bin/call-dispatch" "$BIN_DIR/call-dispatch"
+install -m 755 "$REPO/bin/resumo-do-dia" "$BIN_DIR/resumo-do-dia"
 # Shebang absoluto. Dentro do terminal dos bots o primeiro `python3` do PATH é o Python
 # embutido do Hermes, SEM PyYAML: com `#!/usr/bin/env python3` o hermes-task,
 # hermes-delegar e call-dispatch morriam em `import yaml` justo quando um bot chamava
 # (visto no @orquestrador). Fixa o python3 que acabou de passar na checagem acima.
 PY3="$(command -v python3)"
-for f in hermes-task hermes-delegar call-dispatch openwhispr-notes meetily-notes bot-chat-reset git-bot; do
+for f in hermes-task hermes-delegar call-dispatch resumo-do-dia openwhispr-notes meetily-notes bot-chat-reset git-bot; do
   [[ -f "$BIN_DIR/$f" ]] && head -1 "$BIN_DIR/$f" | grep -q '^#!/usr/bin/env python3' \
     && sed -i "1s|.*|#!$PY3|" "$BIN_DIR/$f"
 done
@@ -200,7 +202,30 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
+  # resumo do dia: o que aconteceu em cada cliente, em linguagem leiga, pelo bot do @pm
+  cat >"$unit/hermes-daily.service" <<UNIT
+[Unit]
+Description=hermes-dev-team: resumo do dia por cliente no Telegram
+
+[Service]
+Type=oneshot
+Environment=PATH=$BIN_DIR:/usr/local/bin:/usr/bin:/bin
+ExecStart=$BIN_DIR/resumo-do-dia
+UNIT
+  cat >"$unit/hermes-daily.timer" <<UNIT
+[Unit]
+Description=hermes-dev-team: resumo do dia (dias úteis, $DAILY_HORA)
+
+[Timer]
+OnCalendar=Mon..Fri $DAILY_HORA
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
   systemctl --user daemon-reload
+  systemctl --user enable --now hermes-daily.timer >/dev/null 2>&1 \
+    || warn "não consegui ligar o hermes-daily.timer — veja: systemctl --user status hermes-daily.timer"
   systemctl --user enable --now hermes-calls.timer >/dev/null 2>&1 \
     || warn "não consegui ligar o hermes-calls.timer — veja: systemctl --user status hermes-calls.timer"
 else

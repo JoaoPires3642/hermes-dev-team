@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""resumo-do-dia — o que aconteceu em cada cliente, em linguagem leiga, no Telegram.
+
+  resumo-do-dia                      # desde a última vez (ou 24h), manda pelo bot do @pm
+  resumo-do-dia --desde 2026-09-29T17:00
+  resumo-do-dia --projeto acme       # só um cliente
+  resumo-do-dia --so-fatos           # imprime os fatos coletados e para (sem modelo, sem Telegram)
+  resumo-do-dia --sem-enviar         # gera o texto e imprime, sem mandar
+
+Agendado para 17h dos dias úteis (hermes-daily.timer / tarefa no Windows), para você
+chegar na daily sabendo o que falar.
+
+Fatos primeiro, modelo depois
+-----------------------------
+Se o bot tivesse que descobrir o que aconteceu, ele erraria ou inventaria. Então este
+script coleta os FATOS sem modelo nenhum — commits do período em cada repo do projeto,
+transições do hermes-task, falhas das rodadas, o que está esperando você — e só então
+o @pm reescreve em linguagem leiga, numa sessão só daquele cliente e daquele dia
+(`daily-<data-hora>`, na pasta do projeto: nada de um cliente vaza no resumo do outro,
+nem o resumo de ontem no de hoje).
+
+Cliente sem movimento não gasta modelo: se só há pendência, a mensagem sai montada
+aqui mesmo; se não há nada, ele não aparece. Se o modelo falhar, os fatos vão crus —
+você recebe o resumo de qualquer jeito.
+
+Códigos de saída: 0 ok · 1 erro (envio falhou) · 2 uso
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import yaml
+
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
+OK, ERRO, USO = 0, 1, 2
+PERFIL = os.getenv("HERMES_DAILY_PROFILE", "pm")   # quem escreve e quem manda
+LIMITE_TELEGRAM = 3500
+ESPERA = {"AWAITING_APPROVAL": "aprovar a proposta (GATE 1)",
+          "AWAITING_SPEC_APPROVAL": "aprovar a especificação técnica (GATE 2)",
+          "AWAITING_REVIEW": "revisar e fazer o merge do PR (GATE 3)",
+          "BLOCKED": "destravar"}
+# em execução agora: o "Em andamento" sai daqui, do estado real, e não de dedução do modelo
+ANDAMENTO = {"SPECIFYING": "sendo especificada", "SPEC_APPROVED": "especificação aprovada, vai para o dev",
+             "IMPLEMENTING": "em desenvolvimento", "TESTING": "em teste", "CHANGES_REQUESTED": "voltou para ajuste"}
+DIAS = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+
+
+def agora():
+    return dt.datetime.now().astimezone()
+
+
+def raiz_hermes():
+    env = os.getenv("HERMES_HOME")
+    raiz = Path(env) if env else (
+        Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "hermes"
+        if sys.platform == "win32" else Path.home() / ".hermes")
+    return raiz.parent.parent if raiz.parent.name == "profiles" else raiz
+
+
+def cfg(nome):
+    """Ambiente ou ~/.hermes/.env: agendado, o script não herda o shell do usuário."""
+    v = os.getenv(nome)
+    if v:
+        return v
+    f = raiz_hermes() / ".env"
+    if f.is_file():
+        for linha in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if linha.startswith(nome + "="):
+                return os.path.expanduser(linha.split("=", 1)[1].strip().strip('"\''))
+    return None
+
+
+def projetos(so=None):
+    base = cfg("HERMES_PROJETOS")
+    if not base:
+        sys.exit("resumo-do-dia: HERMES_PROJETOS não definido")
+    todos = sorted(p for p in Path(base).expanduser().iterdir() if (p / "AGENTS.md").is_file())
+    return [p for p in todos if not so or p.name.casefold() == so.casefold()]
+
+
+def toque(cmd, key):
+    t = key.replace("-", "_")
+    return f"/{cmd}_{t}" if re.fullmatch(r"[A-Za-z0-9_]+", t) else f"/{cmd} {key}"
+
+
+# ------------------------------------------------------------------ coleta (sem modelo)
+def repos(proj):
+    """Repositórios git dentro do projeto (repos/<x>, ou onde houver .git até 2 níveis)."""
+    achados = []
+    for d in [proj] + [p for p in proj.iterdir() if p.is_dir() and not p.name.startswith(".")]:
+        for c in [d] + ([x for x in d.iterdir() if x.is_dir()] if d != proj else []):
+            if (c / ".git").exists() and c not in achados:
+                achados.append(c)
+    return achados
+
+
+def commits(repo, desde):
+    r = subprocess.run(["git", "-C", str(repo), "log", "--all", "--no-merges", f"--since={desde.isoformat()}",
+                        "-n", "60", "--format=%h\x1f%an\x1f%s"], capture_output=True, text=True)
+    if r.returncode != 0:
+        return []
+    return [dict(zip(("hash", "autor", "msg"), l.split("\x1f"))) for l in r.stdout.splitlines() if l]
+
+
+def eventos(proj, desde):
+    f = proj / ".hermes" / "audit.jsonl"
+    out = []
+    if not f.is_file():
+        return out
+    for linha in f.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            e = json.loads(linha)
+            quando = dt.datetime.fromisoformat(e["ts"])
+        except (ValueError, KeyError):
+            continue
+        if quando >= desde:
+            out.append(e)
+    return out
+
+
+def tarefas(proj):
+    out = {}
+    for mf in (proj / ".hermes" / "tasks").glob("*/manifest.yaml"):
+        try:
+            m = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        out[m.get("task_id") or mf.parent.name] = m
+    return out
+
+
+def coletar(proj, desde):
+    ts = tarefas(proj)
+    obj = lambda k: (ts.get(k) or {}).get("objetivo", "")
+    fatos = {"projeto": proj.name, "commits": {}, "andou": [], "criadas": [], "falhas": [], "espera": [],
+             "andamento": []}
+    for repo in repos(proj):
+        cs = commits(repo, desde)
+        if cs:
+            fatos["commits"][str(repo.relative_to(proj)) if repo != proj else "."] = cs
+    for e in eventos(proj, desde):
+        if e.get("tipo") == "transicao":
+            fatos["andou"].append({"tarefa": e.get("task"), "objetivo": obj(e.get("task")),
+                                   "de": e.get("de"), "para": e.get("para"), "por": e.get("por")})
+        elif e.get("tipo") == "new":
+            fatos["criadas"].append({"tarefa": e.get("task"), "objetivo": obj(e.get("task"))})
+        elif e.get("tipo") == "delegar-fim" and e.get("status") != "ok":
+            fatos["falhas"].append({"tarefa": e.get("task"), "objetivo": obj(e.get("task")),
+                                    "bot": e.get("bot"), "status": e.get("status")})
+        elif e.get("tipo") == "delegar-perdida":
+            fatos["falhas"].append({"tarefa": e.get("task"), "objetivo": obj(e.get("task")),
+                                    "bot": e.get("bot"), "status": "perdida"})
+    for key, m in sorted(ts.items()):
+        estado = m.get("estado")
+        if estado in ANDAMENTO and not key.upper().startswith("CALL-"):
+            fatos["andamento"].append({"tarefa": key, "objetivo": m.get("objetivo", ""),
+                                       "situacao": ANDAMENTO[estado]})
+        if estado in ESPERA:
+            item = {"tarefa": key, "objetivo": m.get("objetivo", ""), "o_que": ESPERA[estado]}
+            if estado in ("AWAITING_APPROVAL", "AWAITING_SPEC_APPROVAL"):
+                item["toque"] = toque("aprovar", key)
+            if estado == "AWAITING_REVIEW":
+                item["pr"] = (m.get("artefatos") or {}).get("pr")
+            fatos["espera"].append(item)
+    return fatos
+
+
+def teve_movimento(f):
+    return bool(f["commits"] or f["andou"] or f["criadas"] or f["falhas"])
+
+
+def fatos_em_texto(f):
+    linhas = [f"# Fatos · {f['projeto']}"]
+    for repo, cs in f["commits"].items():
+        linhas.append(f"\n## Commits em {repo}")
+        linhas += [f"- {c['hash']} ({c['autor']}): {c['msg']}" for c in cs]
+    if f["criadas"]:
+        linhas.append("\n## Tarefas criadas")
+        linhas += [f"- {t['tarefa']}: {t['objetivo']}" for t in f["criadas"]]
+    if f["andou"]:
+        linhas.append("\n## Tarefas que andaram")
+        linhas += [f"- {t['tarefa']} ({t['objetivo']}): {t['de']} → {t['para']} por {t['por']}" for t in f["andou"]]
+    if f["falhas"]:
+        linhas.append("\n## Rodadas que falharam")
+        linhas += [f"- {t['tarefa']}: @{t['bot']} {t['status']}" for t in f["falhas"]]
+    linhas.append("\n## Em andamento agora (estado real das tarefas)")
+    linhas += [f"- {t['objetivo'] or t['tarefa']}: {t['situacao']}" for t in f["andamento"]] or ["- (nada)"]
+    if f["espera"]:
+        linhas.append("\n## Esperando o humano")
+        for t in f["espera"]:
+            extra = t.get("toque") or t.get("pr") or ""
+            linhas.append(f"- {t['tarefa']} ({t['objetivo']}): {t['o_que']} {extra}".rstrip())
+    return "\n".join(linhas) + "\n"
+
+
+def so_pendencias(f, data):
+    """Sem movimento, só pendência: a mensagem sai daqui, sem gastar modelo."""
+    linhas = [f"📋 {f['projeto']} — {data}", "Sem movimento hoje.", "", "Precisa de você:"]
+    for t in f["espera"]:
+        extra = t.get("toque") or t.get("pr") or ""
+        linhas.append(f"• {t['objetivo'] or t['tarefa']}: {t['o_que']} {extra}".rstrip())
+    return "\n".join(linhas)
+
+
+# ------------------------------------------------------------------ modelo e envio
+PROMPT = """Escreva o resumo do dia do cliente {projeto} para o João levar à daily.
+Os FATOS abaixo são tudo o que aconteceu — não rode comandos, não abra arquivos, não
+use ferramentas: responda direto, só com o texto da mensagem.
+
+Regras (siga todas):
+1. Linguagem de quem NÃO é técnico. Diga o que mudou para quem usa o sistema, não como
+   foi feito. Proibido: hash, branch, nome de arquivo ou de script, nome de bot (@alguém),
+   sigla técnica (API, GATE, CLI) e estado interno (SPECIFYING, TRIAGED...).
+   Exemplo — commit "fix: valida CPF duplicado no cadastro (POST /clientes)" vira
+   "o cadastro agora avisa quando o CPF já existe".
+2. "Feito" vem dos commits e das tarefas que andaram. Junte o que é do mesmo assunto:
+   no máximo 5 itens, os mais importantes para o cliente.
+3. "Em andamento" vem SÓ da seção "Em andamento agora" dos fatos. Se lá estiver
+   "(nada)", NÃO escreva a linha "Em andamento".
+4. Escreva só essas duas linhas — pendências e falhas o sistema acrescenta sozinho.
+   Não invente nada que não esteja nos fatos. Formato exato:
+
+📋 {projeto} — {data}
+Feito: <no máximo 5 itens, separados por ";">
+Em andamento: <...>
+
+{fatos}"""
+
+
+def escrever(proj, fatos_txt, data, dia_iso, hermes):
+    prompt = proj / ".hermes" / "daily" / f"{dia_iso}-prompt.md"
+    prompt.write_text(PROMPT.format(projeto=proj.name, data=data, fatos=fatos_txt), encoding="utf-8")
+    try:
+        r = subprocess.run([hermes, "-p", PERFIL, "chat", "--in", str(proj), "--continue", f"daily-{dia_iso}",
+                            "--create-if-missing", "--query-file", str(prompt), "--oneshot", "-Q"],
+                           capture_output=True, text=True, timeout=600, cwd=proj)
+    except subprocess.TimeoutExpired:
+        return None
+    texto = (r.stdout or "").strip()
+    return texto if r.returncode == 0 and texto else None
+
+
+VAZIO = re.compile(r"^\s*(em andamento|deu problema|precisa de você)\s*:\s*(\(?\s*(nada|nenhum[a-z]*)[^)]*\)?|-|—)?\s*\.?\s*$", re.I)
+
+
+def montar(texto_modelo, f):
+    """O texto do modelo (Feito / Em andamento) + o que é fato e não pode sair torto:
+    falhas e pendências, com os comandos exatos. Linha vazia ("(nada)") some."""
+    linhas = [l for l in texto_modelo.strip().splitlines()
+              if not VAZIO.match(l) and not re.match(r"^\s*(deu problema|precisa de você)\s*:", l, re.I)]
+    if f["falhas"]:
+        vistos = {}
+        for t in f["falhas"]:   # a mesma tarefa pode ter falhado várias vezes no dia
+            vistos.setdefault(t.get("objetivo") or t["tarefa"], t)
+        linhas.append("Deu problema: " + "; ".join(f"“{o}” parou" for o in vistos))
+    if f["espera"]:
+        linhas.append("Precisa de você:")
+        for t in f["espera"]:
+            extra = t.get("toque") or t.get("pr") or ""
+            linhas.append(f"• {t['objetivo'] or t['tarefa']}: {t['o_que']} {extra}".rstrip())
+    return "\n".join(linhas)
+
+
+def perfil_envio():
+    """O bot do @pm, se tiver Telegram; senão o do @orquestrador."""
+    for p in (PERFIL, "orquestrador"):
+        envf = raiz_hermes() / "profiles" / p / ".env"
+        if envf.is_file() and re.search(r"^TELEGRAM_BOT_TOKEN=\S", envf.read_text(encoding="utf-8",
+                                                                                  errors="replace"), re.M):
+            return p
+    return PERFIL
+
+
+def enviar(texto, hermes, perfil):
+    if len(texto) > LIMITE_TELEGRAM:
+        texto = texto[:LIMITE_TELEGRAM] + "\n…(cortado)"
+    for i in range(3):   # o Telegram às vezes dá timeout num envio e passa no seguinte
+        try:
+            r = subprocess.run([hermes, "-p", perfil, "send", "--to", "telegram", "-q", "--file", "-"],
+                               input=texto, text=True, capture_output=True, timeout=60)
+            if r.returncode == 0:
+                return True
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(3 * (i + 1))
+    return False
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(prog="resumo-do-dia", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--desde", help="ISO (padrão: a última execução, ou 24h atrás)")
+    ap.add_argument("--projeto")
+    ap.add_argument("--so-fatos", action="store_true")
+    ap.add_argument("--sem-enviar", action="store_true")
+    a = ap.parse_args(argv)
+
+    marca = raiz_hermes() / "resumo-do-dia.json"
+    if a.desde:
+        try:
+            desde = dt.datetime.fromisoformat(a.desde)
+            desde = desde if desde.tzinfo else desde.astimezone()
+        except ValueError:
+            print(f"resumo-do-dia: --desde inválido: {a.desde}", file=sys.stderr)
+            return USO
+    else:
+        try:
+            desde = dt.datetime.fromisoformat(json.loads(marca.read_text(encoding="utf-8"))["ate"])
+        except (OSError, ValueError, KeyError):
+            desde = agora() - dt.timedelta(hours=24)
+    inicio = agora()
+    data = f"{DIAS[inicio.weekday()]}, {inicio:%d/%m}"
+    hermes = shutil.which("hermes")
+    if not hermes and not a.so_fatos:
+        print("resumo-do-dia: não achei o `hermes` no PATH", file=sys.stderr)
+        return ERRO
+    perfil = perfil_envio()
+
+    mensagens = []
+    for proj in projetos(a.projeto):
+        f = coletar(proj, desde)
+        if not teve_movimento(f) and not f["espera"]:
+            continue
+        txt = fatos_em_texto(f)
+        if a.so_fatos:
+            print(txt)
+            continue
+        if not teve_movimento(f):
+            mensagens.append(so_pendencias(f, data))
+            continue
+        (proj / ".hermes" / "daily").mkdir(parents=True, exist_ok=True)
+        (proj / ".hermes" / "daily" / f"{inicio:%Y-%m-%d}-fatos.md").write_text(txt, encoding="utf-8")
+        texto = escrever(proj, txt, data, inicio.strftime("%Y-%m-%d-%H%M"), hermes)
+        mensagens.append(montar(texto, f) if texto else
+                         f"📋 {proj.name} — {data} (o resumo não saiu; os fatos crus):\n\n{txt}")
+    if a.so_fatos:
+        return OK
+    if not mensagens:
+        mensagens = [f"📋 {data} — nenhum cliente teve movimento nem está esperando você."]
+
+    tudo_ok = True
+    for m in mensagens:
+        if a.sem_enviar:
+            print(m + "\n")
+        else:
+            tudo_ok = enviar(m, hermes, perfil) and tudo_ok
+    if not a.sem_enviar and tudo_ok and not a.projeto and not a.desde:
+        marca.write_text(json.dumps({"ate": inicio.isoformat(timespec="seconds")}), encoding="utf-8")
+    print(f"{len(mensagens)} mensagem(ns)" + ("" if tudo_ok else " — algum envio falhou"), file=sys.stderr)
+    return OK if tudo_ok else ERRO
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

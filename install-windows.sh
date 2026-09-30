@@ -76,7 +76,7 @@ criar_wrapper() {
   printf '@echo off%s\n"%s" "%s" %%*%s\n' "$CR" "$win" "$REPO_WIN\\bin\\$f" "$CR" >"$BIN_DIR/$f.cmd"
 }
 
-for f in openwhispr-notes git-bot hermes-task bot-chat-reset hermes-delegar call-dispatch; do
+for f in openwhispr-notes git-bot hermes-task bot-chat-reset hermes-delegar call-dispatch resumo-do-dia; do
   [[ -f "$REPO/bin/$f" ]] && criar_wrapper "$f" python python
 done
 for f in tuple-api kiro-pool; do
@@ -205,6 +205,12 @@ printf '@echo off%s\npython "%s" novas --ao-criar "python \\"%s\\" varrer"%s\n' 
 printf 'python "%s" varrer%s\n' "$REPO_WIN\\bin\\call-dispatch" "$CR" >>"$BIN_DIR/hermes-calls.cmd"
 schtasks //Create //F //SC MINUTE //MO 15 //TN "hermes-dev-team - openwhispr-notes" //TR "\"$BIN_WIN\\hermes-calls.cmd\"" >/dev/null 2>&1 \
   || warn "não consegui agendar: rode no cmd -> schtasks /Create /F /SC MINUTE /MO 15 /TN \"hermes-dev-team - openwhispr-notes\" /TR \"$BIN_WIN\\hermes-calls.cmd\""
+
+# Resumo do dia às 17h (dias úteis), pelo bot do @pm. HERMES_DAILY_HORA muda o horário.
+printf '@echo off%s\npython "%s"%s\n' "$CR" "$REPO_WIN\\bin\\resumo-do-dia" "$CR" >"$BIN_DIR/hermes-daily.cmd"
+schtasks //Create //F //SC WEEKLY //D MON,TUE,WED,THU,FRI //ST "${HERMES_DAILY_HORA:-17:00}" \
+  //TN "hermes-dev-team - resumo-do-dia" //TR "\"$BIN_WIN\\hermes-daily.cmd\"" >/dev/null 2>&1 \
+  || warn "não consegui agendar o resumo do dia (schtasks)"
 
 say "Pronto: ${BOTS[*]}"
 python "$REPO/bin/call-dispatch" doctor 2>/dev/null | grep -E "✗|⚠|problema" || true

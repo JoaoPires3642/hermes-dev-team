@@ -423,5 +423,73 @@ class TestPlugin(Base):
         self.assertIn("só vale pelo Telegram", self.g._fazer("aprovar")("CALL-1"))
 
 
+# ====================================================================== resumo-do-dia
+class TestResumo(Base):
+    def test_fatos_trazem_commits_e_ignoram_cliente_parado(self):
+        self.a.repo_com_commits(self.a.acme, "feat: bloqueia CPF duplicado", "fix: busca mais rápida")
+        self.a.novo_projeto("parado")
+        r = self.ok(self.a.resumo("--so-fatos"))
+        self.assertIn("bloqueia CPF duplicado", r.stdout)
+        self.assertNotIn("parado", r.stdout)
+        self.assertEqual(self.a.chats(), [])          # --so-fatos não chama modelo
+
+    def test_uma_rodada_por_cliente_em_sessao_propria(self):
+        self.a.repo_com_commits(self.a.acme, "feat: relatório")
+        outro = self.a.novo_projeto("beta")
+        self.a.repo_com_commits(outro, "feat: agenda")
+        self.ok(self.a.resumo())
+        chats = self.a.chats()
+        self.assertEqual({c["projeto"] for c in chats}, {str(self.a.acme), str(outro)})
+        self.assertTrue(all(c["perfil"] == "pm" and c["sessao"].startswith("daily-") for c in chats))
+        self.assertNotIn("agenda", next(c for c in chats if c["projeto"] == str(self.a.acme))["query"])
+        self.assertEqual(len(self.a.envios()), 2)
+
+    def test_so_pendencia_sai_sem_modelo_e_com_o_toque(self):
+        proj = self.triar_call()                    # CALL-1 esperando o GATE 1
+        antes = len(self.a.chats())
+        (proj / ".hermes" / "audit.jsonl").unlink()   # sem movimento no período
+        self.ok(self.a.resumo())
+        self.assertEqual(len(self.a.chats()), antes)
+        self.assertIn("/aprovar_CALL_1", self.a.envios()[-1]["texto"])
+
+    def test_pendencia_e_falha_sao_acrescentadas_pelo_script(self):
+        proj = self.triar_call()
+        self.ok(self.a.resumo())
+        texto = self.a.envios()[-1]["texto"]
+        self.assertIn("resumo de teste do @pm", texto)       # o que o modelo escreveu
+        self.assertIn("Precisa de você:", texto)             # o que o script acrescentou
+        self.assertIn("/aprovar_CALL_1", texto)
+
+    def test_linha_vazia_do_modelo_some(self):
+        from importlib.machinery import SourceFileLoader
+        carregador = SourceFileLoader("rd", str(self.a.bin / "resumo-do-dia"))
+        rd = importlib.util.module_from_spec(importlib.util.spec_from_loader("rd", carregador))
+        carregador.exec_module(rd)
+        fatos = {"falhas": [], "espera": []}
+        texto = rd.montar("📋 x\nFeito: a; b\nEm andamento: (nada)\nPrecisa de você: nenhum bloqueador", fatos)
+        self.assertEqual(texto, "📋 x\nFeito: a; b")
+
+    def test_modelo_falhou_manda_os_fatos_crus(self):
+        self.a.repo_com_commits(self.a.acme, "feat: exporta Excel")
+        self.a.chat_sai_com(1)
+        self.ok(self.a.resumo())
+        texto = self.a.envios()[-1]["texto"]
+        self.assertIn("os fatos crus", texto)
+        self.assertIn("exporta Excel", texto)
+
+    def test_sem_nada_em_lugar_nenhum_avisa_curto(self):
+        self.ok(self.a.resumo())
+        self.assertIn("nenhum cliente teve movimento", self.a.envios()[-1]["texto"])
+
+    def test_marca_so_avanca_quando_tudo_foi_entregue(self):
+        self.a.repo_com_commits(self.a.acme, "feat: x")
+        self.a.falhar_envios(10)
+        self.assertNotEqual(self.a.resumo().returncode, 0)
+        self.assertFalse((self.a.home / "resumo-do-dia.json").exists())
+        self.a.falhar_envios(0)
+        self.ok(self.a.resumo())
+        self.assertTrue((self.a.home / "resumo-do-dia.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

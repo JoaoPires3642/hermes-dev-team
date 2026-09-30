@@ -18,6 +18,13 @@ no TUPLE, então é você quem cria as issues:
 4. Handoff para o @po com a tabela `KEY · tipo · título` e chame
    `hermes-delegar po "$P" CALL-N <handoff>`. Termine com a tabela e, separado, os desvios.
 
+### Resumo do dia (17h, dias úteis)
+
+O `resumo-do-dia` coleta os fatos de cada cliente (commits, tarefas que andaram, falhas) e
+te chama numa sessão só daquele cliente para reescrever em linguagem leiga — é o que o
+João leva para a daily. Escreva só o que está nos fatos, do jeito que o pedido manda; não
+use ferramentas nessa rodada. Pendências e falhas o script acrescenta sozinho.
+
 ### Rotina
 
 - **Routine diária** (dias úteis, início do dia): varre o TUPLE do projeto e manda ao

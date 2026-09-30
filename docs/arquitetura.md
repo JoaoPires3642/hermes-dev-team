@@ -68,6 +68,11 @@
   (`hermes sessions list` não mostra). Chat do bot aberto no Desktop bloqueia a entrega
   (`target_busy`) e a mensagem se perde — mais um motivo para trabalho não passar por ali.
 - **@pm** routine diária no TUPLE.
+- **Resumo do dia** (17h, dias úteis, `resumo-do-dia`): o script coleta os **fatos** de cada
+  cliente sem modelo (commits do período em cada repo, transições do `hermes-task`, falhas,
+  pendências); o @pm reescreve em linguagem leiga numa sessão só daquele cliente e daquele
+  horário; pendências e falhas o script acrescenta com os comandos exatos. Cliente sem
+  movimento não gasta modelo. Chega pelo bot do @pm, separado dos gates.
 - **Handoff sintetizado**: cada passagem de bastão é um artefato curto em
   `<projeto>/.hermes/tasks/<KEY>/handoffs/` (contrato, arquivos, CAs, pendências) — nunca o log inteiro.
 - Skills: `fluxo-time`, `kanban-tuple`, `git-workflow`, `bmad-story` (globais), `transcricao-crua`
