@@ -23,6 +23,7 @@ O que ele se recusa a fazer, sempre: --force, --force-with-lease, --no-verify,
 arquivo que pareça segredo. Não há flag para desligar isso — é o ponto.
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -36,6 +37,11 @@ SEGREDOS = re.compile(
     r"(^|/)\.env(\.|$)|\.pem$|\.p12$|\.pfx$|(^|/)id_rsa|(^|/)\.npmrc$|"
     r"(^|/)\.netrc$|secrets?\.(ya?ml|json)$|credentials?\.(ya?ml|json)$", re.I)
 PERIGO = re.compile(r"--force|--no-verify|--no-gpg-sign|--hard|\s-f(\s|$)", re.I)
+# marca de bot no commit — proibida. Cobre "[bot @dev-front]", "(bot @qa)", "@bot",
+# "por @techlead" e as variações que apareceram na prática.
+MARCA_BOT = re.compile(
+    r"[\[\(]\s*bot\b[^\]\)]*[\]\)]|@(?:bot|orquestrador|po|pm|techlead|qa|dev-front|"
+    r"dev-back|arquiteto)\b|\bbot\s+@", re.I)
 
 OK, ERRO, USO, BLOCKED = 0, 1, 2, 3
 
@@ -56,13 +62,35 @@ def fim(codigo, msg):
     sys.exit(codigo)
 
 
+def sem_dialogo():
+    """Ambiente em que o git FALHA em vez de perguntar.
+
+    No Windows o git abre janela — o CredentialHelperSelector, o prompt de senha do
+    Git Credential Manager — e um processo de bot fica preso nela para sempre. Em
+    30/09 o @dev-front escreveu o código, foi fazer o push e sumiu: 0 s de CPU, log
+    mudo, e só 45 minutos depois o watchdog desconfiaria. Ninguém viu a janela porque
+    ninguém estava olhando a tela.
+
+    Falhar em dois segundos com "não consegui autenticar" é melhor que pendurar:
+    o erro vira handoff, o humano resolve, e o turno não morre de pé.
+    """
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"   # não pergunta no terminal
+    env["GCM_INTERACTIVE"] = "never"   # Git Credential Manager: nada de janela
+    env["GIT_ASKPASS"] = "echo"        # askpass que devolve vazio na hora
+    env["SSH_ASKPASS"] = "echo"
+    env.pop("DISPLAY", None)
+    return env
+
+
 def git(repo, *args, checar=True):
     """Roda git. Recusa qualquer argumento perigoso, venha de onde vier."""
     alvo = " ".join(args)
     if PERIGO.search(alvo):
         fim(ERRO, "recusado: argumento proibido em 'git %s'" % alvo)
-    p = subprocess.run(["git", "-C", str(repo), *args],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    p = subprocess.run(["git", "-C", str(repo), "-c", "credential.interactive=false", *args],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=sem_dialogo(), timeout=180)
     if checar and p.returncode:
         fim(ERRO, "git %s falhou:\n%s" % (alvo, (p.stderr or p.stdout).strip()))
     return p
@@ -188,9 +216,17 @@ def cmd_commit(a):
         fim(ERRO, "recusado: arquivo com cara de segredo no commit:\n  " +
                   "\n  ".join(suspeitos) + "\nAjuste o .gitignore e tente de novo.")
 
+    # O histórico do repo é do time, não do Hermes. Um commit que anuncia "[bot @nome]"
+    # muda como a pessoa do outro lado lê o código — e o `git log` é para sempre, ao
+    # contrário do board, onde a marca de bot faz sentido porque distingue quem
+    # escreveu o comentário. Aqui não: commit é commit.
+    # Recusa em vez de remover calado: se a mensagem traz a marca, quem a montou está
+    # seguindo uma regra velha, e apagar sem avisar deixaria a regra velha de pé.
+    if MARCA_BOT.search(cabecalho):
+        fim(USO, "recusado: o cabeçalho traz marca de bot (%r).\n"
+                 "Commit não leva assinatura de bot — isso é do comentário na issue."
+                 % MARCA_BOT.search(cabecalho).group(0))
     corpo = "Refs: %s" % a.key
-    if a.bot:
-        corpo = "[bot @%s]\n\n%s" % (a.bot, corpo)
     git(repo, "commit", "-m", cabecalho, "-m", corpo)
     sha = git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
     print("%s  %s" % (sha, cabecalho))
@@ -250,7 +286,11 @@ def main():
     p.add_argument("--key", required=True)
     p.add_argument("--tipo", required=True)
     p.add_argument("--desc", required=True)
-    p.add_argument("--escopo"); p.add_argument("--bot")
+    p.add_argument("--escopo")
+    # --bot fica aceito e IGNORADO de proposito: quem ja chama com ele nao quebra,
+    # e a marca simplesmente nao entra mais no commit. Removê-lo faria o comando
+    # falhar por argumento desconhecido, que e pior que ignorar em silencio aqui.
+    p.add_argument("--bot", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_commit)
 
     p = sub.add_parser("push", help="fetch + pull --rebase + push; conflito vira BLOCKED")
