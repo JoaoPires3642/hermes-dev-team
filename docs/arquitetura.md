@@ -53,11 +53,14 @@
   Bots não podem rodar `call-dispatch`, `hermes -p`/`hermes chat` cru, nem `--by humano`:
   `approvals.deny` no Hermes (vale até sob `--yolo`) e regra de negação no Kiro. Limite
   honesto: os bots rodam como o mesmo usuário do SO, então isso é cerca, não cofre.
-- **Fluxo:** `/cliente` → @orquestrador (sessão `CALL-N`) → resumo + proposta →
-  **GATE 1** → `/aprovar` → @pm cria as issues no TUPLE, cada uma com
-  `hermes-task new <ISSUE> --herda-gate1 CALL-N` (nasce em `SPECIFYING`) → @po escreve as
-  stories → @techlead, uma rodada por issue → **GATE 2** → `/aprovar` → @techlead gera o
-  `.kiro/specs` e libera os devs → último dev a entregar chama o @qa → **GATE 3** (PR).
+- **Fluxo:** `/cliente` → @orquestrador (sessão `CALL-N`) entende a call e escreve o resumo →
+  @po quebra em Feature → Story → Task com CAs e horas (a proposta) → **GATE 1**: o humano
+  aprova exatamente o que vai para o TUPLE → `/aprovar` → @pm cria as issues, cada uma com
+  `hermes-task new <ISSUE> --herda-gate1 CALL-N` (nasce em `SPECIFYING`) → @po, na mesma
+  sessão, escreve os docs BMAD → @techlead, uma rodada por issue → **GATE 2** → `/aprovar` →
+  @techlead gera o `.kiro/specs` e libera os devs → último dev a entregar chama o @qa →
+  **GATE 3** (PR). A quebra fica no @po (Sonnet), não no @orquestrador (Opus): cada um no
+  seu papel, e mais barato.
 - **`message_agent` / Bot Chat** ficam para recado curto. Duas condições para existir:
   `profile.yaml` com `hermes-bots` e sessão chamada exatamente `Bot Chat` (portão em
   `tools/bot_mode_dm.py`); o instalador cria as duas. As `Bot Chat` são ocultas por design

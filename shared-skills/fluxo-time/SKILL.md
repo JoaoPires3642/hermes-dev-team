@@ -14,8 +14,8 @@ metadata:
 
 | Bot | Faz | Não faz |
 |---|---|---|
-| @orquestrador | triagem de uma call por sessão: resume e propõe issues (o GATE 1 sai sozinho) | não codifica, não cria issue, não chama bot |
-| @po | dor do cliente → user story + CAs; mantém PRD/épicos em `docs/` | não escreve spec técnica nem código |
+| @orquestrador | triagem de uma call por sessão: resumo (o que o cliente pediu, decisões, dúvidas, ⚠️) → chama o @po | não quebra em task, não cria issue, não codifica |
+| @po | antes do GATE 1: a proposta (Feature → Story → Task, CAs, horas); depois: PRD/épicos/stories em `docs/` | não escreve spec técnica nem código |
 | @pm | pós-GATE 1: cria as issues aprovadas no TUPLE; prazos, cycles, impedimentos; routine diária | não altera escopo |
 | @techlead | story BMAD técnica + DoR, pede GATE 2, gera `.kiro/specs` | não implementa |
 | @dev-front / @dev-back | implementam a story aprovada no repo, commit/push, PR, issue → IN_REVIEW | não mudam escopo; não fazem merge |
@@ -58,7 +58,7 @@ quando a tarefa chega em `AWAITING_APPROVAL` / `AWAITING_SPEC_APPROVAL` / `AWAIT
 
 | Gate | Chega quando | O humano responde | Aí o código |
 |---|---|---|---|
-| **GATE 1** | @orquestrador move a call para `AWAITING_APPROVAL` | `/aprovar CALL-N` · `/ajustar CALL-N <o quê>` · `/rejeitar CALL-N <motivo>` | aprovar → chama o @pm; ajustar → devolve ao @orquestrador na mesma sessão da call (máx. 3) |
+| **GATE 1** | @po move a call para `AWAITING_APPROVAL` (com a proposta) | `/aprovar CALL-N` · `/ajustar CALL-N <o quê>` · `/rejeitar CALL-N <motivo>` | aprovar → chama o @pm; ajustar → volta ao @po (ou ao @orquestrador, se o texto começar com "orquestrador:"), na mesma sessão (máx. 3) |
 | **GATE 2** | @techlead move a issue para `AWAITING_SPEC_APPROVAL` | `/aprovar KEY` · `/ajustar KEY <o quê>` · `/rejeitar KEY <motivo>` | aprovar → chama o @techlead para gerar `.kiro/specs`; ajustar → volta ao @techlead |
 | **GATE 3** | @qa move para `AWAITING_REVIEW` (DoD aceito) | revisa e faz o merge do PR | bot nunca faz merge nem move issue para `DONE` |
 
@@ -93,7 +93,7 @@ E ele confere, em código, o que a skill sozinha não garante:
 
 - a pasta é projeto (`AGENTS.md`) e fica dentro de `$HERMES_PROJETOS`;
 - o handoff mora em `.hermes/tasks/<KEY>/handoffs/` da própria tarefa;
-- é a **vez** daquele bot no estado do manifest — @pm/@po em `SPECIFYING`, @techlead em
+- é a **vez** daquele bot no estado do manifest — @po em `TRIAGED`/`SPECIFYING`, @pm em `SPECIFYING`, @techlead em
   `SPECIFYING`/`SPEC_APPROVED`, devs em `IMPLEMENTING`/`CHANGES_REQUESTED`, @qa em
   `TESTING`. Negado = o estado não chegou lá; **não contorne**, mova o estado certo
   (ou peça o gate).
@@ -108,9 +108,9 @@ checagens. E não chame o @orquestrador — ele só nasce pelo `call-dispatch`.
 ### Quem chama quem
 
 ```
-call-dispatch ──/cliente──▶ @orquestrador (CALL-N) ──▶ GATE 1
+call-dispatch ──/cliente──▶ @orquestrador (CALL-N): resumo ──▶ @po: proposta ──▶ GATE 1
 call-dispatch ──/aprovar──▶ @pm: cria as issues no TUPLE + `hermes-task new <ISSUE> --herda-gate1 CALL-N`
-@pm ──▶ @po (CALL-N, com as KEYs criadas) ──▶ stories ──▶ @techlead (uma rodada por ISSUE)
+@pm ──▶ @po (mesma sessão CALL-N, com as KEYs criadas) ──▶ docs BMAD ──▶ @techlead (uma rodada por ISSUE)
 @techlead ──▶ GATE 2 ──/aprovar──▶ @techlead: specs, IMPLEMENTING ──▶ @dev-front / @dev-back
 último dev a entregar (estado virou TESTING) ──▶ @qa ──▶ CHANGES_REQUESTED ──▶ dev · ou AWAITING_REVIEW ──▶ GATE 3
 ```

@@ -5,8 +5,8 @@ motor de execução. Tudo que é decidido vira issue no **TUPLE** (fonte da verd
 
 ```
 Call nova (OpenWhispr, job a cada 15 min) → Telegram: "de qual cliente?" → /cliente CALL-N <projeto>
-  → @orquestrador, numa sessão só daquela call → GATE 1 (/aprovar no Telegram)
-  → @pm cria as issues no TUPLE → @po → @techlead → GATE 2 (/aprovar)
+  → @orquestrador (resumo, numa sessão só daquela call) → @po (proposta: stories, CAs, horas)
+  → GATE 1 (/aprovar no Telegram) → @pm cria as issues no TUPLE → @po (docs) → @techlead → GATE 2
   → @dev-front / @dev-back → @qa (loop até passar) → PR → GATE 3 (humano, merge)
 
 Cada bot trabalha numa sessão NOVA por tarefa, na pasta do cliente (hermes-delegar):
@@ -19,8 +19,8 @@ Arquitetura completa: [docs/arquitetura.md](docs/arquitetura.md).
 
 | Bot | Papel | Pet | Kiro pode |
 |---|---|---|---|
-| @orquestrador | triagem da call (resumo + proposta → GATE 1); no Telegram, só orienta | octopus | ler + tuple-api |
-| @po | dor → user story, PRD/épicos | peri-the-owl | ler, escrever `docs/`, tuple-api |
+| @orquestrador | triagem da call: resumo → @po; no Telegram, só orienta | octopus | ler + tuple-api |
+| @po | proposta do GATE 1 (stories, CAs, horas); depois PRD/épicos/stories | peri-the-owl | ler, escrever `docs/`, tuple-api |
 | @pm | cria as issues aprovadas no GATE 1; prazo, cycles, impedimentos (routine diária) | capybara-lulu | ler + tuple-api |
 | @techlead | story BMAD + DoR, GATE 2, `.kiro/specs` | pipe-wrench-robot | ler, escrever `docs/` e `.kiro/`, git leitura, tuple-api |
 | @dev-front | implementa front, confere a tela no navegador, commit/push, PR | foxlynn | ler, escrever, shell (sem force/reset --hard/--no-verify) |

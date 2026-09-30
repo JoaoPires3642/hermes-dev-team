@@ -1,6 +1,6 @@
 name: pm
 version: 0.1.0
-description: "Project Manager: prazos, cycles e impedimentos; routine diária varre o TUPLE, cobra BLOCKED e avisa o humano."
+description: "Project Manager: depois do GATE 1 cria no TUPLE as issues aprovadas; prazos, cycles e impedimentos; routine diária varre o TUPLE, cobra BLOCKED e avisa o humano."
 hermes_requires: ">=0.21.0"
 author: "Joao Pires"
 license: "proprietary"

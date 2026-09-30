@@ -91,7 +91,7 @@ H = {"humano"}
 FINAIS = {"MERGED", "DEPLOYED", "HOMOLOGATING"}
 TRANSICOES = {
     ("RECEIVED", "TRIAGED"): ({"orquestrador"}, {"resumo": "arquivo"}),
-    ("TRIAGED", "AWAITING_APPROVAL"): ({"orquestrador"}, {"proposta": "arquivo"}),
+    ("TRIAGED", "AWAITING_APPROVAL"): ({"po"}, {"proposta": "arquivo"}),                   # quebra do @po
     ("AWAITING_APPROVAL", "SPECIFYING"): (H, {"issues": "texto", "via": "texto"}),        # GATE 1
     ("AWAITING_APPROVAL", "CLOSED"): (H, {"motivo": "texto"}),
     ("AWAITING_APPROVAL", "TRIAGED"): (H, {"motivo": "texto"}),                          # GATE 1: ajustar

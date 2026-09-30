@@ -153,7 +153,9 @@ def _fazer(nome: str):
             _gravar_pendentes(pend)
             o_que = {"ajustar": "o que mudar", "rejeitar": "o motivo",
                      "novo": "o nome do cliente novo (vira a pasta do projeto)"}[nome]
-            return f"✍️ Manda na próxima mensagem {o_que} em {fixas[0]}. (vale 10 min · /cancelar)"
+            dica = ("\nÉ sobre o entendimento da call, e não sobre a quebra? Comece com “orquestrador:”."
+                    if nome == "ajustar" and fixas[0].upper().startswith("CALL-") else "")
+            return f"✍️ Manda na próxima mensagem {o_que} em {fixas[0]}. (vale 10 min · /cancelar){dica}"
         args = cmd + [nome]
         if via:
             args += ["--via", via, *fixas]

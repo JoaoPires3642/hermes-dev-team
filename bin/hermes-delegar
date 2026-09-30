@@ -59,7 +59,7 @@ LIMITE_TELEGRAM = 3500  # a API corta em 4096; sobra para cabeçalho
 PODE = {
     "orquestrador": {"RECEIVED", "TRIAGED"},             # triagem da call e ajuste do GATE 1
     "pm": {"SPECIFYING"},                                # pós-GATE 1: cria as issues no TUPLE
-    "po": {"SPECIFYING"},
+    "po": {"TRIAGED", "SPECIFYING"},                     # antes do GATE 1: proposta; depois: docs BMAD
     "techlead": {"SPECIFYING", "SPEC_APPROVED"},         # story + DoR; pós-GATE 2: specs
     "dev-front": {"IMPLEMENTING", "CHANGES_REQUESTED"},
     "dev-back": {"IMPLEMENTING", "CHANGES_REQUESTED"},
@@ -183,8 +183,16 @@ def avisar(texto, anexo=None):
         return False
     if len(texto) > LIMITE_TELEGRAM:
         texto = texto[:LIMITE_TELEGRAM] + "\n…(cortado)"
-    ok = subprocess.run([h, "-p", AVISO_PROFILE, "send", "--to", "telegram", "-q", "--file", "-"],
-                        input=texto, text=True, capture_output=True, timeout=60).returncode == 0
+    ok = False
+    for i in range(3):   # timeout isolado do Telegram não pode engolir um gate
+        try:
+            ok = subprocess.run([h, "-p", AVISO_PROFILE, "send", "--to", "telegram", "-q", "--file", "-"],
+                                input=texto, text=True, capture_output=True, timeout=60).returncode == 0
+        except subprocess.TimeoutExpired:
+            ok = False
+        if ok:
+            break
+        time.sleep(3 * (i + 1))
     if ok and anexo and Path(anexo).is_file():
         subprocess.run([h, "-p", AVISO_PROFILE, "send", "--to", "telegram", "-q", f"MEDIA:{anexo}"],
                        capture_output=True, text=True, timeout=60)
@@ -285,7 +293,7 @@ def aviso_final(reg, m):
         ult = (m.get("historico") or [{}])[-1]
         motivo = (ult.get("evidencias") or {}).get("motivo") or ult.get("por") or "?"
         return f"⛔ {cab} BLOCKED por @{bot}: {motivo}\n\n{resposta[-1500:]}", None
-    if bot in DEVE_MOVER and antes == depois:
+    if (bot in DEVE_MOVER or (bot == "po" and antes == "TRIAGED")) and antes == depois:
         return (f"⚠️ {cab} · @{bot} terminou sem mover a tarefa (segue em {depois}).\n\n"
                 f"{resposta[-1500:]}\n\nSaída: {reg['saida']}"), None
     return None, None

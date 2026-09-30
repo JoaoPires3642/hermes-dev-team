@@ -41,7 +41,7 @@ Depois de cada `move`, o comando diz o status do TUPLE: mova lá também (`tuple
 | De → Para | Quem | Evidência obrigatória |
 |---|---|---|
 | RECEIVED → TRIAGED | @orquestrador | `resumo=<arquivo>` |
-| TRIAGED → AWAITING_APPROVAL | @orquestrador | `proposta=<arquivo>` (árvore + horas) |
+| TRIAGED → AWAITING_APPROVAL | @po | `proposta=<arquivo>` (árvore Feature → Story → Task, CAs, horas) |
 | AWAITING_APPROVAL → SPECIFYING | **humano** (GATE 1) | `issues=...` `via=telegram:<uid>:<msg>` |
 | AWAITING_APPROVAL → TRIAGED | **humano** (GATE 1: ajustar) | `motivo=...` (volta ao @orquestrador; máx. 3) |
 | SPECIFYING → AWAITING_SPEC_APPROVAL | @techlead | `story=<arq>` `dor=ok` + `contrato=<arq>` se front+back + `allowed_paths` de cada dev |

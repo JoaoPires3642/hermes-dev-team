@@ -201,6 +201,8 @@ say "Agendando o job das calls (Agendador de Tarefas, a cada 15 min)"
 BIN_WIN="$(cygpath -w "$BIN_DIR" 2>/dev/null || echo "$BIN_DIR")"
 printf '@echo off%s\npython "%s" novas --ao-criar "python \\"%s\\" varrer"%s\n' "$CR" \
   "$REPO_WIN\\bin\\openwhispr-notes" "$REPO_WIN\\bin\\call-dispatch" "$CR" >"$BIN_DIR/hermes-calls.cmd"
+# de novo sempre: reenvia pergunta que não chegou (timeout do Telegram)
+printf 'python "%s" varrer%s\n' "$REPO_WIN\\bin\\call-dispatch" "$CR" >>"$BIN_DIR/hermes-calls.cmd"
 schtasks //Create //F //SC MINUTE //MO 15 //TN "hermes-dev-team - openwhispr-notes" //TR "\"$BIN_WIN\\hermes-calls.cmd\"" >/dev/null 2>&1 \
   || warn "não consegui agendar: rode no cmd -> schtasks /Create /F /SC MINUTE /MO 15 /TN \"hermes-dev-team - openwhispr-notes\" /TR \"$BIN_WIN\\hermes-calls.cmd\""
 

@@ -34,7 +34,7 @@ BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 BOTS = {
     "orquestrador": {
         "model": "claude-opus-5", "provider": "anthropic",  # le entrada externa nao confiavel: precisa julgar injecao e nao inventar cliente
-        "desc": "Recebe as entradas (notas de call da Meetily, issues marcadas no TUPLE, artefatos/PBIs), resume, propõe issues, pede o GATE 1 e distribui o trabalho por @menção.",
+        "desc": "Porta de entrada: numa sessão por call (aberta pelo call-dispatch), entende a conversa com o cliente, escreve o resumo e passa ao @po. No Telegram, orienta e aponta os comandos dos gates.",
         "pet": "octopus",
         # terminal: sem ele não roda tuple-api nem hermes-task, e o desenho exige os dois
         # (GATE 1, criar issue, registrar aprovação). É o bot que ingere transcrição de
@@ -54,7 +54,7 @@ BOTS = {
     },
     "po": {
         "model": "claude-sonnet-5-5", "provider": "anthropic",  # dor -> user story: escrita estruturada sobre contexto ja limpo
-        "desc": "Product Owner: transforma dores do cliente em user stories com critérios de aceite no padrão BMAD e mantém PRD/épicos em docs/.",
+        "desc": "Product Owner: antes do GATE 1, quebra o resumo da call em Feature → Story → Task com critérios de aceite e horas (a proposta); depois, mantém PRD/épicos/stories BMAD em docs/.",
         "pet": "peri-the-owl",
         "toolsets": BASE_TOOLS + ["file", "terminal"],
         "kiro_tools": ["read", "write", "shell"],
@@ -66,7 +66,7 @@ BOTS = {
     },
     "pm": {
         "model": "claude-haiku-4-5", "provider": "anthropic",  # le board e lista o que travou: quase mecanico, roda todo dia
-        "desc": "Project Manager: prazos, cycles e impedimentos; routine diária varre o TUPLE, cobra BLOCKED e avisa o humano.",
+        "desc": "Project Manager: depois do GATE 1 cria no TUPLE as issues aprovadas; prazos, cycles e impedimentos; routine diária varre o TUPLE, cobra BLOCKED e avisa o humano.",
         # o próprio @pm escreveu esta skill; foi revisada antes de entrar no repo
         "extra_skills": ["pm-board-cadence"],
         "pet": "capybara-lulu",

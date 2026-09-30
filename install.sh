@@ -185,6 +185,8 @@ Description=hermes-dev-team: exporta calls do OpenWhispr e avisa o call-dispatch
 Type=oneshot
 Environment=PATH=$BIN_DIR:/usr/local/bin:/usr/bin:/bin
 ExecStart=$BIN_DIR/openwhispr-notes novas --ao-criar "$BIN_DIR/call-dispatch varrer"
+# de novo sempre: reenvia pergunta que não chegou (timeout do Telegram); sem call nova, não faz nada
+ExecStartPost=$BIN_DIR/call-dispatch varrer
 UNIT
   cat >"$unit/hermes-calls.timer" <<UNIT
 [Unit]
