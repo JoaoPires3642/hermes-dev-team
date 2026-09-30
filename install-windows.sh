@@ -85,9 +85,25 @@ BASH_WIN="$(cygpath -w "$(command -v bash)" 2>/dev/null || echo bash)"
 CR=$'\r'
 
 # $1 = nome do script · $2 = interpretador no bash · $3 = interpretador no cmd.exe
+# REPO com barras normais: e o caminho que o python DO WINDOWS entende, e ele
+# aceita barra normal sem escape nenhum -- ao contrario da contrabarra, que o
+# bash come dentro de aspas.
+REPO_SLASH="${REPO_WIN//\\//}"
+
 criar_wrapper() {
   local f=$1 posix=$2 win=$3
-  printf '#!/usr/bin/env bash\nexec %s "%s" "$@"\n' "$posix" "$REPO/bin/$f" >"$BIN_DIR/$f"
+  # O wrapper SEM extensao e o que o Git Bash pega -- e e o que o terminal dos bots
+  # usa. Se ele passar o caminho MSYS (/c/Users/...) para o python do Windows, vira
+  # C:\c\Users\... e o script nao abre: foi assim que o @orquestrador travou a
+  # CALL-1 em RECEIVED, sem chamar o @po. Para o python vai caminho Windows; para o
+  # bash (tuple-api, kiro-pool) continua o caminho POSIX, que e o que ELE entende.
+  local alvo="$REPO/bin/$f"
+  [[ "$posix" == python* ]] && alvo="$REPO_SLASH/bin/$f"
+  {
+    printf '#!/usr/bin/env bash\n'
+    [[ -n "$PYSITE_WIN" ]] && printf 'export PYTHONPATH="%s;${PYTHONPATH:-}"\n' "$PYSITE_WIN"
+    printf 'exec %s "%s" "$@"\n' "$posix" "$alvo"
+  } >"$BIN_DIR/$f"
   chmod +x "$BIN_DIR/$f"
   # Em tres etapas, nao num printf so: `$(...)` come a quebra de linha final e a
   # linha do PYTHONPATH acabava grudada na do python, gerando um .cmd invalido.
