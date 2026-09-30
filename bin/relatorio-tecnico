@@ -1,0 +1,288 @@
+#!/usr/bin/env python
+"""relatorio-tecnico — uma mensagem por cliente, entregue por codigo, nao por lembranca.
+
+  relatorio-tecnico enviar [--data AAAA-MM-DD] [--projeto NOME] [--seco]
+  relatorio-tecnico listar [--data AAAA-MM-DD]     # quem teve movimento, sem gastar modelo
+
+Por que existe
+--------------
+A rotina do @arquiteto ja sabia escrever o relatorio. O que ela nao fazia era ENTREGAR:
+em duas rodadas seguidas o bot gastou o turno gerando o HTML e terminou devolvendo texto
+sem nunca chamar `hermes send`. Nao e desatencao do modelo -- e o desenho. Toda vez que a
+entrega depende de alguem lembrar de rodar um comando no fim de um turno longo, ela e a
+primeira coisa a cair (o mesmo aconteceu com o `target_busy` do @orquestrador).
+
+Entao a divisao passa a ser a mesma do `hermes-delegar`: **codigo entrega, modelo
+escreve**. O script varre, decide quem entrou, chama UMA sessao por cliente e manda a
+mensagem. O modelo so produz o conteudo.
+
+De quebra resolve tres coisas que eram instrucao e viram estrutura:
+  - uma mensagem por cliente, porque e uma sessao por cliente;
+  - sessao NOVA na pasta do cliente, que e a regra do `fluxo-time` (a Bot Chat e uma so
+    e mistura clientes);
+  - cliente sem movimento nao chama modelo -- hoje ele lia tudo para decidir depois.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+# stdout do Windows e cp1252: sem isto o primeiro emoji da mensagem derruba o
+# proprio script na hora de imprimir (o --seco morria no 🏗).
+for _f in (sys.stdout, sys.stderr):
+    try:
+        _f.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+OK, ERRO, USO = 0, 1, 2
+PERFIL = "arquiteto"
+DESTINO_PADRAO = "telegram:5057406158"
+
+
+def raiz_projetos() -> Path:
+    p = os.getenv("HERMES_PROJETOS")
+    if not p:
+        sys.exit("relatorio-tecnico: HERMES_PROJETOS nao esta definida")
+    return Path(p)
+
+
+def hermes() -> str:
+    """O CLI. No Windows e hermes.cmd, que o PATH do Git Bash nao resolve sozinho."""
+    for nome in ("hermes.cmd", "hermes"):
+        alvo = Path(os.getenv("LOCALAPPDATA", "")) / "hermes" / "bin" / nome
+        if alvo.is_file():
+            return str(alvo)
+    return "hermes"
+
+
+def rodar(cmd, **kw):
+    # encoding explicito: sem ele o Windows decodifica em cp1252 e o primeiro acento
+    # derruba a chamada -- foi assim que nenhum aviso de call saia desta maquina.
+    return subprocess.run(cmd, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", **kw)
+
+
+def repos(proj: Path) -> list[Path]:
+    """Todo diretorio com .git dentro da pasta do projeto, ate 3 niveis."""
+    achados = []
+    for nivel in ("*/.git", "*/*/.git", "*/*/*/.git"):
+        achados += [g.parent for g in proj.glob(nivel)]
+    return sorted(set(achados))
+
+
+def teve_movimento(proj: Path, desde: str, ate: str) -> tuple[bool, str]:
+    """(mexeu, motivo). Barato de proposito: git e mtime, zero modelo."""
+    for r in repos(proj):
+        # --all e obrigatorio: `git log` sozinho ve so o HEAD, e o trabalho do dia
+        # costuma estar na branch da feature ou vir de um fetch. Sem isto o script
+        # dizia "sem movimento" num dia com 16 commits (medido em 29/09).
+        saida = rodar(["git", "-C", str(r), "log", "--all", "--since", desde,
+                       "--until", ate, "--oneline"])
+        n = len([l for l in saida.stdout.splitlines() if l.strip()])
+        if n:
+            return True, f"{n} commit(s) em {r.name}"
+    tarefas = proj / ".hermes" / "tasks"
+    if tarefas.is_dir():
+        corte = dt.datetime.fromisoformat(desde).timestamp()
+        for m in tarefas.glob("*/manifest.yaml"):
+            try:
+                if m.stat().st_mtime >= corte:
+                    return True, f"tarefa {m.parent.name} mexida"
+            except OSError:
+                continue
+    return False, ""
+
+
+def projetos(raiz: Path, filtro: str | None) -> list[Path]:
+    todos = sorted(p for p in raiz.iterdir()
+                   if p.is_dir() and (p / "AGENTS.md").is_file())
+    return [p for p in todos if not filtro or p.name == filtro]
+
+
+PROMPT = """Relatorio tecnico de {data} para o cliente {cliente}, que fica em {pasta}.
+Voce ja esta na pasta dele. Execute, nao narre, nao pergunte.
+
+EVIDENCIA (so isto conta)
+- git log --all --since={desde} --until={ate} --stat nos repositorios desta
+  pasta. O --all nao e opcional: sem ele voce ve so o HEAD e perde o que esta
+  na branch da feature ou veio de fetch.
+- git diff --stat no periodo
+- .hermes/tasks/*/manifest.yaml: estado, historico, evidencias, e os handoffs citados
+- o grafo (codebase-memory-mcp) para IMPACTO: quem depende do que mudou.
+  O diff diz o que mudou; o grafo diz o que aquilo alcanca. Grafo nao e prova de
+  que algo roda.
+
+ESCOPO — duas perguntas diferentes, nao confunda
+O cliente entrou neste relatorio porque ALGO nele se mexeu. Isso nao quer dizer que so
+o que mexeu importa:
+- Atividades, Codigo e Testes: so o que mudou no periodo.
+- Arquitetura e Diagrama: TODOS os repositorios desta pasta, tendo mexido ou nao. Um
+  repo parado continua fazendo parte do desenho, e some-lo do diagrama daria a
+  entender que ele nao existe mais. Para o repo sem commit, diga "sem mudanca no
+  periodo" e mantenha ele no diagrama e na secao de arquitetura.
+
+1) DIAGRAMA, por repositorio (TODOS), em docs/arquitetura/<repo>.drawio
+   - nao existe -> crie a partir do grafo e da arvore, nunca de suposicao
+   - existe -> compare com o codigo de hoje (detect_changes/compare_graphs). Sem
+     mudanca na arquitetura, NAO toque no arquivo. Com mudanca, atualize so o que
+     mudou e preserve posicao, agrupamento e anotacao feitas a mao.
+   - nao consegue preservar o trabalho manual: grave <repo>.proposto.drawio ao lado,
+     nunca por cima
+
+2) HTML, um so, em docs/arquitetura/relatorio-{data}.html, pela skill archify.
+   Abre sem internet. Segure o tamanho: e relatorio, nao museu. Secao sem conteudo
+   vira "- nada no periodo", nunca some -- numero que pula parece texto truncado.
+     1 Resumo executivo tecnico  2 Atividades  3 Codigo  4 Arquitetura
+     5 Diagrama (criado/atualizado/sem mudanca, com caminho)  6 Testes
+     7 Decisoes tecnicas  8 Divergencias (evidencia, impacto, o que investigar)
+     9 Riscos e bloqueios  10 Pendencias
+     11 Estado final: concluida com evidencia | em andamento | bloqueada | falha
+        identificada | nao verificada
+     12 Proximos passos, que voce NAO executa
+     13 Arquivos que eu escrevi nesta rodada, com caminho
+
+3) RESPONDA a mensagem curta abaixo e NADA MAIS. Quem envia e o script que te
+   chamou -- voce nao precisa rodar `hermes send`, e nao deve. Sua resposta INTEIRA
+   e a mensagem. Sem preambulo, sem "aqui esta", sem repetir as 13 secoes.
+
+🏗 {cliente} · {data}
+
+<2 a 4 linhas do que andou de fato, com numero de PR/commit quando houver>
+
+⚠️ Precisa de voce
+• <so o que espera decisao sua ou destrava algo; nada aqui, escreva "nada">
+
+🔍 Nao verificado
+• <o que voce NAO confirmou. Nunca omita: um relatorio que esconde isto parece
+  melhor e vale menos>
+
+📐 Diagrama: <criados / atualizados / sem mudanca>
+
+REGRAS QUE NAO SE QUEBRAM
+- Arquivo existir nao e recurso pronto.
+- Nao diga que teste passou sem ter lido o resultado.
+- Sem evidencia suficiente, escreva "nao verificado".
+- Nunca invente link, id de tarefa, hash de commit ou cobertura.
+- Ferramenta declarada nao e ferramenta que rodou: confirme o retorno antes de
+  afirmar que gerou diagrama ou HTML.
+- Escreva SO em docs/arquitetura/. Nunca codigo-fonte, config ou outro caminho.
+- Separe fato observado, interpretacao, hipotese e recomendacao.
+"""
+
+
+def analisar(proj: Path, data: str, desde: str, ate: str) -> tuple[str, str | None]:
+    """(mensagem, caminho do html). Uma sessao NOVA, na pasta do cliente."""
+    texto = PROMPT.format(cliente=proj.name, pasta=proj, data=data, desde=desde, ate=ate)
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False,
+                                     encoding="utf-8", newline="\n") as fh:
+        fh.write(texto)
+        pergunta = fh.name
+    try:
+        r = rodar([hermes(), "-p", PERFIL, "--in", str(proj), "chat",
+                   "--query-file", pergunta, "--oneshot", "-Q"], timeout=1800)
+    finally:
+        os.unlink(pergunta)
+    saida = (r.stdout or "").strip()
+    # o -Q ainda imprime a linha de sessao no fim; ela nao e mensagem
+    linhas = [l for l in saida.splitlines() if not l.startswith("session_id:")]
+    msg = "\n".join(linhas).strip()
+    if r.returncode != 0 and not msg:
+        return "", None
+    html = proj / "docs" / "arquitetura" / f"relatorio-{data}.html"
+    return msg, (html if html.is_file() else None)
+
+
+def enviar(msg: str, html: Path | None, destino: str) -> bool:
+    corpo = msg
+    if html:
+        # MEDIA: so e interceptado por quem entrega numa plataforma do gateway. O
+        # `hermes send` e; a resposta de um job de cron NAO e (roda como CLI, e a linha
+        # sai como texto). Por isso quem anexa e o script.
+        corpo += f"\n\nMEDIA:{html}"
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False,
+                                     encoding="utf-8", newline="\n") as fh:
+        fh.write(corpo)
+        arq = fh.name
+    try:
+        r = rodar([hermes(), "send", "--to", destino, "--file", arq], timeout=300)
+        if r.returncode != 0:
+            r = rodar([hermes(), "send", "--to", destino, "--file", arq], timeout=300)
+        if r.returncode != 0:
+            print(f"  envio falhou: {(r.stderr or r.stdout or '').strip()[:200]}",
+                  file=sys.stderr)
+        return r.returncode == 0
+    finally:
+        os.unlink(arq)
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="relatorio-tecnico")
+    ap.add_argument("comando", choices=("enviar", "listar"))
+    ap.add_argument("--data", help="dia auditado (padrao: ontem)")
+    ap.add_argument("--projeto", help="so este cliente")
+    ap.add_argument("--destino", default=os.getenv("HERMES_RELATORIO_DESTINO",
+                                                   DESTINO_PADRAO))
+    ap.add_argument("--seco", action="store_true",
+                    help="analisa e imprime, sem enviar nada")
+    a = ap.parse_args(argv)
+
+    dia = (dt.date.fromisoformat(a.data) if a.data
+           else dt.date.today() - dt.timedelta(days=1))
+    data = dia.isoformat()
+    desde, ate = data, (dia + dt.timedelta(days=1)).isoformat()
+
+    raiz = raiz_projetos()
+    if not raiz.is_dir():
+        print(f"relatorio-tecnico: {raiz} nao existe", file=sys.stderr)
+        return ERRO
+
+    alvos = projetos(raiz, a.projeto)
+    if a.projeto and not alvos:
+        print(f"relatorio-tecnico: nao achei o projeto {a.projeto}", file=sys.stderr)
+        return USO
+
+    com_movimento = []
+    for p in alvos:
+        mexeu, motivo = teve_movimento(p, desde, ate)
+        if mexeu:
+            com_movimento.append((p, motivo))
+
+    if a.comando == "listar":
+        print(f"dia {data}:")
+        for p, motivo in com_movimento:
+            print(f"  {p.name}: {motivo}")
+        if not com_movimento:
+            print("  nenhum cliente com movimento")
+        return OK
+
+    # Silencio quando nao ha nada: cliente parado nao gera mensagem, e dia sem nada
+    # nao gera nem uma linha dizendo que nao houve nada.
+    if not com_movimento:
+        print(f"{data}: nenhum cliente com movimento", file=sys.stderr)
+        return OK
+
+    saida = OK
+    for p, motivo in com_movimento:
+        print(f"{p.name} ({motivo})", file=sys.stderr)
+        msg, html = analisar(p, data, desde, ate)
+        if not msg:
+            print(f"  {p.name}: o bot nao devolveu mensagem", file=sys.stderr)
+            saida = ERRO
+            continue
+        if a.seco:
+            print(f"\n----- {p.name} -----\n{msg}\n  [html: {html or 'nao gerado'}]")
+            continue
+        if not enviar(msg, html, a.destino):
+            saida = ERRO
+    return saida
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

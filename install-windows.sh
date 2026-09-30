@@ -112,7 +112,7 @@ criar_wrapper() {
   printf '"%s" "%s" %%*%s\n' "$win" "$REPO_WIN\\bin\\$f" "$CR" >>"$BIN_DIR/$f.cmd"
 }
 
-for f in openwhispr-notes git-bot hermes-task bot-chat-reset hermes-delegar call-dispatch resumo-do-dia; do
+for f in openwhispr-notes git-bot hermes-task bot-chat-reset hermes-delegar call-dispatch resumo-do-dia relatorio-tecnico; do
   [[ -f "$REPO/bin/$f" ]] && criar_wrapper "$f" python python
 done
 for f in tuple-api kiro-pool; do
@@ -161,6 +161,23 @@ for b in "${BOTS[@]}"; do
     tmp=$(mktemp)
     awk -v exe="$CBM_WIN" '{sub(/command: codebase-memory-mcp$/, "command: \"" exe "\""); print}' \
       "$prof/config.yaml" >"$tmp" && cat "$tmp" >"$prof/config.yaml" && rm -f "$tmp"
+  fi
+
+  # O cron do @arquiteto roda por script (--no-agent), e o Hermes exige que ele viva em
+  # <profile>/scripts/. Fica um lancador de 3 linhas: o script de verdade mora no repo,
+  # para o cron nunca executar uma copia velha que ninguem lembrou de atualizar.
+  if [[ "$b" == "arquiteto" ]]; then
+    mkdir -p "$prof/scripts"
+    {
+      printf 'import runpy, sys
+'
+      printf 'REPO = r"%s"
+' "$REPO_WIN\bin\relatorio-tecnico"
+      printf 'sys.argv = [REPO, "enviar"]
+'
+      printf 'runpy.run_path(REPO, run_name="__main__")
+'
+    } >"$prof/scripts/relatorio-tecnico.py"
   fi
 
   # gates humanos pelo Telegram — só no @orquestrador (config.yaml já habilita)
