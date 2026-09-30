@@ -107,6 +107,9 @@ templates/projeto/   AGENTS.md, docs/, memory/, .kiro/steering/, .hermes/tuple.e
 install.sh           instala/atualiza tudo nesta máquina
 ```
 
+Testes (sem Hermes, Telegram nem modelo de verdade — um Hermes falso numa pasta temporária):
+`python3 -m unittest discover -s tests -v`. Rode antes de commitar mudança em `bin/` ou no plugin.
+
 Mudou SOUL, pet, ferramentas ou permissões? Edite `souls/` ou `scripts/gen_bots.py`,
 rode `python3 scripts/gen_bots.py`, commite e `./install.sh`.
 

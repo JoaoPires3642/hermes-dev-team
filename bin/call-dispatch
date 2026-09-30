@@ -248,7 +248,7 @@ def cmd_varrer(_a):
     seq_f = d / "seq"
     seq = int(seq_f.read_text().strip() or 0) if seq_f.is_file() else 0
 
-    novas = 0
+    novas, desta_rodada = 0, set()
     for nota in notas:
         chave = str(Path(nota).resolve())
         if chave in indice or not Path(nota).is_file():
@@ -266,13 +266,15 @@ def cmd_varrer(_a):
         seq_f.write_text(str(seq))
         gravar(indice_f, indice)
         novas += 1
+        desta_rodada.add(cid)
         call["avisada"] = avisar(pergunta(call))
         gravar(d / f"{cid}.json", call)
         print(f"{cid}: {chave}")
-    # pergunta que não chegou (Telegram fora, timeout) vai de novo nesta rodada
+    # pergunta que não chegou numa rodada ANTERIOR vai de novo agora. A que acabou de
+    # falhar (3 tentativas) espera a próxima: insistir já seria bater na mesma rede caída.
     for f in sorted(d.glob("CALL-*.json")):
         c = json.loads(f.read_text(encoding="utf-8"))
-        if c["estado"] == "AGUARDANDO_CLIENTE" and not c.get("avisada"):
+        if c["estado"] == "AGUARDANDO_CLIENTE" and not c.get("avisada") and c["id"] not in desta_rodada:
             c["avisada"] = avisar(pergunta(c))
             gravar(f, c)
             print(f"{c['id']}: pergunta reenviada ({'ok' if c['avisada'] else 'falhou de novo'})")
