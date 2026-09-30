@@ -16,6 +16,37 @@ Sintomas, todos com a mesma causa:
 | `curl: cannot read config from '/tmp/h.conf'` | `$TMPDIR`/`/tmp` são invenções do MSYS; não existem para o curl nativo |
 | `ENOENT ... AppData\Local\Temp\x.json` | o arquivo nunca foi criado, porque o passo anterior (curl) já havia falhado — não é problema de short name |
 
+### Flag nativa que começa com `/`
+
+O MSYS converte `/Create` num caminho antes de o programa nativo ver. O idioma `//Flag`
+funciona em alguns binários e é **recusado** por outros (`schtasks //Create` →
+`Argumento/opção inválido`). Forma que vale para todos: flag com uma barra e
+`MSYS_NO_PATHCONV=1` prefixando a linha.
+
+```bash
+MSYS_NO_PATHCONV=1 schtasks /Create /F /SC MINUTE /MO 15 /TN "<nome>" /TR "\"$CMD_WIN\""
+MSYS_NO_PATHCONV=1 schtasks /Query /TN "<nome>"      # confirma a próxima execução
+```
+
+O mesmo vale para `hermes.cmd`: `hermes profile install /c/Users/...` devolve
+`Cannot resolve distribution source` — passe `C:/...` (`cygpath -m`).
+
+### `$TMPDIR` significa duas coisas diferentes
+
+No bash deste host `TMPDIR=/tmp`, que resolve para `C:/Users/<user>/AppData/Local/Temp`. O
+scratch do **profile** (onde a ferramenta de escrita de arquivo grava, e onde o runtime diz que
+o scratch fica) é outro diretório: `<profile>/cache/scratch`. Montar `"$TMPDIR/arquivo"` para
+ler o que foi escrito no scratch aponta para um arquivo que não existe — e `git commit -F`
+responde `could not read log file`, enquanto um `bash "$TMPDIR/x.sh"` desanexado falha calado.
+Use o **caminho absoluto devolvido pela escrita**, não `$TMPDIR`.
+
+### Valor com contrabarra morre no `awk -v`
+
+`awk -v k="C:\Users\joao"` processa os escapes e entrega `C:Usersjoao` — `\U`, `\j`, `\D`, `\h`
+simplesmente desaparecem. Um helper que atualiza `.env` por `awk` corrompe o caminho em disco,
+sem erro, e o próximo leitor recebe um caminho inexistente. Grave caminho com **barra normal**
+(`cygpath -m`, ou `${VAR//\\//}`) antes de passar a qualquer filtro de texto.
+
 ### Scratch usável pelos dois lados
 
 ```bash

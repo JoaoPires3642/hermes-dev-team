@@ -1,7 +1,7 @@
 ---
 name: auditoria-plataforma-bots
 description: Auditar a plataforma de bots — diagrama vs o disco.
-version: 1.0.0
+version: 1.1.0
 author: Hermes Orquestrador
 metadata:
   hermes:
@@ -51,6 +51,26 @@ máquina de estados, DoD, `allowed_paths`, circuit breaker). **Separe "não impl
 5. **Dúvidas que só o humano responde** — em especial as decisões de design que a auditoria expõe.
 6. **GATE 1** por último.
 
+## Reiniciar o gateway depois de mudar config em disco
+
+Config nova em `profiles/<bot>/config.yaml` **só passa a valer depois do restart** — o processo
+no ar continua com o que leu ao subir. O gateway é um multiplexer único, do profile `default`,
+e a sessão do bot roda **dentro** desse PID.
+
+O bot consegue reiniciá-lo. Duas condições, e é a segunda que engana:
+
+1. **Aponte `HERMES_HOME` para a raiz do Hermes**, não para o profile. Restart escopado ao
+   profile do bot responde `not confirmed: host operation is still pending` e o PID não muda —
+   é pedido errado, não falta de permissão. `HERMES_HOME=<root> hermes gateway status` deve
+   mostrar o PID host antes de você mandar o `restart`.
+2. **Derrubar o gateway mata o próprio turno**, e a resposta ao humano nunca é entregue. Rode
+   o restart por um script desanexado (`setsid nohup`), com atraso de ~20s para a sua mensagem
+   sair primeiro, e faça o script gravar `pid` + `start_time` **antes e depois** em um log fora
+   do scratch do profile.
+
+A prova de que reiniciou é `start_time` novo no `gateway_state.json` — não o `exit 0` do
+comando, e não o log do lançador.
+
 ## Armadilhas
 
 - **Quando a própria lacuna impede criar issue, diga as duas razões** (falta o OK do GATE 1 **e**
@@ -75,5 +95,27 @@ máquina de estados, DoD, `allowed_paths`, circuit breaker). **Separe "não impl
 - **Auditoria de UMA pasta de projeto tem skill própria.** Se a pergunta é sobre os arquivos de um
   projeto (`AGENTS.md`, `tuple.env`, `steering`, `tasks`), use `onboarding-projeto-plataforma`;
   esta skill é para a plataforma (profiles, gateway, cron, helpers).
+- **Rodar o instalador da plataforma de dentro de uma sessão de bot envenena os caminhos.** O
+  Hermes exporta `HERMES_HOME=<root>/profiles/<bot>`, então o script escreve o `.env` do time
+  dentro do profile do bot e procura `<profile>/profiles/<bot>`. Suba para a pasta acima de
+  `profiles/` **e exporte** `HERMES_HOME`, senão o `hermes` filho herda o do bot.
+- **Instalador com `set -e` que termina sem a linha final de sucesso FALHOU.** Ele aborta no
+  meio deixando na tela um `==> Bot @<nome>` que parece progresso. Confira o `exit` **e** a
+  última linha; depois confira `profiles/<bot>/config.yaml` em disco, que é a única prova de
+  que a mudança chegou. Instalador que "rodou" sem trocar arquivo nenhum é o sintoma padrão
+  de uma travessia MSYS → nativo errada: detalhe e conserto na skill
+  `onboarding-projeto-plataforma`, referência sobre a fronteira MSYS ↔ nativo.
+- **Antes de declarar um comando proibido, leia os padrões de `approvals.deny` do profile.**
+  Eles casam **substring do comando literal**, não intenção: um deny de `*hermes -p *` não
+  proíbe `hermes gateway`, e um deny qualquer dispara se a palavra aparecer dentro de um
+  argumento citado (mensagem de commit, texto de `-q`). Quando o texto é que colide, passe-o
+  por arquivo (`git commit -F <arquivo>`) em vez de reescrever o texto para escapar do filtro.
+  Dizer "não tenho permissão" sem conferir a lista é a pior resposta possível: o humano sabe
+  que dá e você perde a rodada.
+- **`Background process started` não é prova de que o comando rodou.** Com `setsid nohup ...
+  >/dev/null 2>&1` o retorno é só o shell subindo: caminho errado, arquivo ausente e erro de
+  sintaxe somem junto com a saída. Dispare com `test -f "$script" && ...`, faça o próprio
+  script logar em arquivo, e confirme pelo **efeito** (o estado que devia mudar), nunca pela
+  mensagem do lançador.
 - **Divergência entre README, diagrama e disco é achado, não ruído.** Reporte qual dos três está
   errado — o que engana o próximo bot é a doc, não a falta em si.

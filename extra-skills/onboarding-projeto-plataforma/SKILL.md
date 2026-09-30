@@ -1,7 +1,7 @@
 ---
 name: onboarding-projeto-plataforma
 description: Habilitar uma pasta de projeto na plataforma de bots.
-version: 1.0.0
+version: 1.1.0
 author: Hermes Orquestrador
 metadata:
   hermes:
