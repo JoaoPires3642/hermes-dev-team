@@ -86,6 +86,16 @@ class Ambiente:
         falso = self.bin / "hermes"
         falso.write_text(HERMES_FALSO.format(python=sys.executable), encoding="utf-8")
         falso.chmod(falso.stat().st_mode | stat.S_IEXEC)
+        if os.name == "nt":
+            # No Windows o shebang nao existe e o `shutil.which` so enxerga o que casa
+            # com PATHEXT: um arquivo chamado `hermes`, sem extensao, e invisivel.
+            # `avisar()` fazia `if not shutil.which("hermes"): return False` e devolvia
+            # False sem nunca tentar enviar -- o que aparecia como "avisada: False" em
+            # meia suite, como se fosse logica de fluxo. Um .cmd ao lado resolve, e e o
+            # mesmo recurso que o install-windows.sh usa para os scripts de verdade.
+            (self.bin / "hermes.cmd").write_text(
+                '@echo off\r\n"%s" "%s" %%*\r\n' % (sys.executable, falso),
+                encoding="utf-8", newline="")
         for bot, provedor in BOTS.items():
             prof = self.home / "profiles" / bot
             prof.mkdir(parents=True)

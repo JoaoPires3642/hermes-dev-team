@@ -32,13 +32,20 @@ CBM_WIN="$LOCALAPPDATA/Programs/codebase-memory-mcp/codebase-memory-mcp.exe"
 KIRO_WIN="${KIRO_WIN//\\//}"
 CBM_WIN="${CBM_WIN//\\//}"
 
-# Onde o pip instala sem admin. O Python do Windows so acha esse site-packages se
-# APPDATA existir no ambiente -- e o Agendador de Tarefas roda sem ela. Resultado:
-# `import yaml` morria no job das calls de 15 em 15 min, com o pacote instalado.
-# Cravar o caminho no PYTHONPATH do wrapper resolve em qualquer ambiente; se depois
-# alguem instalar o PyYAML no site do sistema, isto so fica redundante.
-PYSITE_WIN="$(python -c 'import site,sys; sys.stdout.write(site.getusersitepackages())' 2>/dev/null || true)"
-PYSITE_WIN="${PYSITE_WIN//\\//}"
+# As dependencias Python do time moram numa pasta do proprio Hermes, nao no user
+# site do pip. Motivo medido nesta maquina: o Agendador de Tarefas NAO consegue ler
+# %APPDATA%\Python\...\site-packages -- `os.path.isdir` devolve False la dentro,
+# com USERPROFILE e APPDATA corretos e o diretorio no sys.path. O job das calls
+# morria em `import yaml` a cada 15 minutos por causa disso. %LOCALAPPDATA%\hermes
+# e legivel no mesmo contexto (verificado disparando a tarefa), e nao precisa de
+# admin como o site-packages do sistema precisaria.
+PYLIBS="$HERMES_ROOT/pylibs"
+PYSITE_WIN="$(cygpath -m "$PYLIBS" 2>/dev/null || echo "$PYLIBS")"
+if ! PYTHONPATH="$PYSITE_WIN" python -c "import yaml" 2>/dev/null; then
+  say "Instalando PyYAML em $PYLIBS (o Agendador nao le o site do usuario)"
+  python -m pip install --quiet --target "$PYLIBS" pyyaml \
+    || die "nao consegui instalar PyYAML em $PYLIBS"
+fi
 
 # grava/atualiza KEY=VAL sem apagar o resto do arquivo. Reinstalar NÃO pode derrubar o
 # que o usuário configurou depois (token do gateway, etc.) — o README promete que
@@ -63,7 +70,8 @@ die()  { printf '\033[1;31m[erro]\033[0m %s\n' "$*" >&2; exit 1; }
 say "Checando dependências"
 [[ -f "$HERMES"   ]] || die "hermes.cmd não encontrado em $HERMES"
 [[ -x "$KIRO_EXE" ]] || die "kiro-cli.exe não encontrado em $KIRO_EXE"
-python -c 'import yaml' 2>/dev/null || die "hermes-task precisa de python com PyYAML"
+# ja garantido em $PYLIBS acima; aqui so confirma que o caminho resolve
+PYTHONPATH="$PYSITE_WIN" python -c "import yaml" 2>/dev/null \n  || die "PyYAML nao resolve nem em $PYLIBS"
 [[ -f "$CBM_WIN" ]] || warn "codebase-memory-mcp não encontrado — @techlead/@dev-*/@qa perdem o grafo do código"
 
 say "Ferramentas em ~/.local/bin (wrappers: o shebang python3 não existe no Windows)"
