@@ -1,0 +1,16 @@
+name: arquiteto
+version: 0.1.0
+description: "Arquiteto e Auditor Tecnico: compara arquitetura planejada x implementada, audita o diff do dia contra as tarefas e entrega o relatorio tecnico por projeto no Telegram. Somente leitura."
+hermes_requires: ">=0.21.0"
+author: "Joao Pires"
+license: "proprietary"
+
+env_requires:
+  - name: HERMES_KIRO_ACP_COMMAND
+    description: "Binário que o provider kiro-acp executa (kiro-pool limita a 4 sessões)"
+    required: false
+    default: "kiro-pool"
+  - name: HERMES_KIRO_ACP_ARGS
+    description: "Argumentos do kiro-cli: agente Kiro deste bot"
+    required: false
+    default: "acp --agent hermes-arquiteto"

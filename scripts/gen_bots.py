@@ -15,6 +15,7 @@ FORMAS = {
     "orquestrador": ("circle", 313), "po": ("square", 13), "pm": ("diamond", 43),
     "techlead": ("triangle", 193), "dev-front": ("circle", 253),
     "dev-back": ("triangle", 103), "qa": ("square", 283),
+    "arquiteto": ("hexagon", 163),
 }
 
 FINGIR_HUMANO = ["hermes-task * --by humano*", "hermes-task *--by=humano*"]
@@ -28,6 +29,33 @@ PULAR_GATE = ["call-dispatch*", "hermes-delegar orquestrador*", "hermes -p*", "h
 # não passam mais pela política dele.
 HERMES_DENY = ["*--by humano*", "*--by=humano*", "*--by @humano*", "*call-dispatch*",
                "*hermes-delegar orquestrador*", "*hermes -p *", "*hermes chat*"]
+
+# O @arquiteto e somente leitura, e isso precisa ser TRAVA e nao recomendacao: ele le
+# repositorio inteiro (conteudo nao confiavel) e um texto plantado num README pedindo
+# "rode este comando" nao pode virar escrita. `approvals.deny` casa o comando inteiro
+# com fnmatch e vale ate sob --yolo.
+#
+# Nao entra `git *` inteiro de proposito: ele PRECISA de log/diff/status/show para
+# auditar. O que se bloqueia e o que muda o mundo.
+SO_LEITURA = [
+    # Os verbos de git vem como `*git*<verbo>*`, NAO `*git <verbo>*`. Testado: com
+    # `*git commit*` o bot rodou `git -C "<pasta>" commit --allow-empty` e o commit
+    # entrou no repo -- o `-C <path>` se enfia entre as duas palavras e a substring
+    # literal deixa de existir. `git.exe`, `git -c k=v` e `--git-dir` furam igual.
+    # O `*` do fnmatch casa espaco, entao a forma larga pega todas.
+    "*git*commit*", "*git*push*", "*git*add *", "*git*rm *", "*git*mv *",
+    "*git*checkout*", "*git*switch*", "*git*merge*", "*git*rebase*", "*git*reset*",
+    "*git*revert*", "*git*stash*", "*git*clean*", "*git*tag *", "*git*apply*",
+    "*git*cherry-pick*", "*git*config*", "*git*remote*", "*git-bot *",
+    # o board e o estado das tarefas
+    "*tuple-api * post *", "*hermes-task*move*", "*hermes-task*new*",
+    # producao
+    "*kubectl *", "*helm *", "*terraform apply*", "*terraform destroy*",
+    "*docker push*", "*npm publish*", "*gh workflow run*", "*az pipelines run*",
+    "*gh pr merge*", "*gh release*", "*gh pr create*",
+    # o proprio sistema
+    "*rm -rf /*", "*rm -rf ~*", "*hermes gateway*", "*schtasks*",
+]
 
 BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 
@@ -74,6 +102,24 @@ BOTS = {
         "kiro_tools": ["read", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [{"capability": "shell", "match": [TUPLE_CURL, TASK], "effect": "allow"}],
+    },
+    "arquiteto": {
+        # sonnet: le diff e arvore de projeto e precisa distinguir evidencia de suposicao,
+        # o que haiku erra para o lado de afirmar; e roda todo dia, onde opus nao se paga.
+        "model": "claude-sonnet-5-5", "provider": "anthropic",
+        "desc": "Arquiteto e Auditor Tecnico: compara arquitetura planejada x implementada, audita o diff do dia contra as tarefas e entrega o relatorio tecnico por projeto no Telegram. Somente leitura.",
+        "pet": "pipe-wrench-robot",
+        # cronjob: o relatorio e diario. terminal: sem ele nao ha `git log`/`git diff`,
+        # que e a evidencia inteira do trabalho dele. file: ler codigo e docs.
+        # Deliberadamente SEM browser: auditoria se faz no repo, nao na internet.
+        "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
+        "hermes_deny_extra": SO_LEITURA,
+        # anthropic, nao kiro, DE PROPOSITO: as deny rules do Kiro dependem da engine v3,
+        # que o acp recusa junto com --agent, entao no Kiro ele rodaria sem trava nenhuma.
+        # Aqui o `approvals.deny` do Hermes funciona de verdade.
+        "kiro_tools": ["read"],
+        "kiro_allowed": ["read"],
+        "kiro_rules": [],
     },
     "techlead": {
         "extra_skills": ["karpathy-guidelines", "codebase-memory"],
@@ -217,7 +263,7 @@ platform_toolsets:
 
 approvals:
   deny:
-{yaml_list([f'"{x}"' for x in HERMES_DENY], 4)}
+{yaml_list([f'"{x}"' for x in HERMES_DENY + b.get('hermes_deny_extra', [])], 4)}
 {plugins}{browser}{mcp}""", encoding="utf-8", newline="\n")
 
     # profile.yaml — SEM ele o Hermes não reconhece o profile como Bot Mode e não injeta

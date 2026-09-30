@@ -1,0 +1,79 @@
+# Bot @arquiteto — gerado por scripts/gen_bots.py
+model:
+  default: "claude-sonnet-5-5"
+  provider: "anthropic"
+
+agent:
+  bot_mode_protocol: true
+
+display:
+  pet:
+    enabled: true
+    slug: "pipe-wrench-robot"
+
+platform_toolsets:
+  cli:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - cronjob
+    - file
+    - terminal
+  telegram:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - cronjob
+    - file
+    - terminal
+
+approvals:
+  deny:
+    - "*--by humano*"
+    - "*--by=humano*"
+    - "*--by @humano*"
+    - "*call-dispatch*"
+    - "*hermes-delegar orquestrador*"
+    - "*hermes -p *"
+    - "*hermes chat*"
+    - "*git*commit*"
+    - "*git*push*"
+    - "*git*add *"
+    - "*git*rm *"
+    - "*git*mv *"
+    - "*git*checkout*"
+    - "*git*switch*"
+    - "*git*merge*"
+    - "*git*rebase*"
+    - "*git*reset*"
+    - "*git*revert*"
+    - "*git*stash*"
+    - "*git*clean*"
+    - "*git*tag *"
+    - "*git*apply*"
+    - "*git*cherry-pick*"
+    - "*git*config*"
+    - "*git*remote*"
+    - "*git-bot *"
+    - "*tuple-api * post *"
+    - "*hermes-task*move*"
+    - "*hermes-task*new*"
+    - "*kubectl *"
+    - "*helm *"
+    - "*terraform apply*"
+    - "*terraform destroy*"
+    - "*docker push*"
+    - "*npm publish*"
+    - "*gh workflow run*"
+    - "*az pipelines run*"
+    - "*gh pr merge*"
+    - "*gh release*"
+    - "*gh pr create*"
+    - "*rm -rf /*"
+    - "*rm -rf ~*"
+    - "*hermes gateway*"
+    - "*schtasks*"
