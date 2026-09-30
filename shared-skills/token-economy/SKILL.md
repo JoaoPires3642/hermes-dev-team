@@ -19,9 +19,9 @@ Antes de qualquer leitura, confira se a tarefa é sua e se há algo novo:
 
 - [ ] Fila vazia, board sem pendência, nada mudou → responda `[SILENT]` e **pare**.
       Um turno que não produz nada custa igual a um que produz.
-- [ ] A tarefa é de outro papel? Passe adiante por @menção em vez de "ajudar".
-- [ ] Já processou isso? O que diz o que é novo é o arquivo de controle
-      (`_calls/.novas.txt`) ou o manifest — não a sua memória do turno anterior.
+- [ ] A tarefa é de outro papel? Passe adiante (`hermes-delegar`, skill `fluxo-time`) em vez de "ajudar".
+- [ ] Já processou isso? O que diz o que é novo é o handoff da rodada ou o manifest
+      (`hermes-task show`) — não a sua memória do turno anterior.
 
 ## Leitura
 

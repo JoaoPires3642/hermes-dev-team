@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+"""hermes-delegar — dá trabalho a outro bot numa sessão NOVA, na pasta do cliente.
+
+  hermes-delegar <bot> <projeto> <KEY> <handoff.md> [--esperar] [--timeout MIN]
+  hermes-delegar status <projeto> [<KEY>]
+
+Por que isto existe
+-------------------
+A `Bot Chat` é uma por bot, eterna, e junta todos os clientes: com três clientes, a
+tarefa do C chega dentro da conversa de A e B, e quando enche o Hermes compacta tudo
+junto. Então trabalho não vai por `message_agent`: vai por aqui, que abre
+
+    hermes -p <bot> chat --in <projeto> --continue <KEY>-<bot> --create-if-missing \\
+      --query-file <prompt> --oneshot -Q
+
+— sessão com nome próprio por tarefa e por bot, na pasta do cliente, com o AGENTS.md
+dele e nenhum histórico de outro cliente. O nome faz a MESMA tarefa retomar a MESMA
+conversa (ajuste pedido no gate volta com o contexto certo).
+
+E porque é código, e não o bot rodando `hermes -p` cru, as regras valem sempre:
+  - a pasta tem que ser projeto (AGENTS.md) e ficar dentro de $HERMES_PROJETOS;
+  - o handoff tem que morar na pasta da tarefa (.hermes/tasks/<KEY>/handoffs/);
+  - o bot só é chamado no estado do manifest em que é a vez dele (tabela PODE) —
+    ninguém chega no dev antes do GATE 2, porque o hermes-task não deixa o estado
+    chegar lá sem o humano.
+
+Roda em segundo plano por padrão: volta na hora, e um supervisor destacado espera o
+bot, grava o resultado em <projeto>/.hermes/runs/<KEY>/ e avisa no Telegram quando
+há gate a aprovar, falha, timeout ou BLOCKED. `--esperar` roda em primeiro plano.
+
+Códigos de saída: 0 ok · 1 negado/erro · 2 uso · 4 já tem uma rodada desse bot nessa tarefa
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import yaml
+
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
+OK, ERRO, USO, OCUPADO = 0, 1, 2, 4
+TIMEOUT_PADRAO = int(os.getenv("HERMES_DELEGAR_TIMEOUT_MIN", "45"))
+AVISO_PROFILE = os.getenv("HERMES_AVISO_PROFILE", "orquestrador")  # quem fala com o humano
+LIMITE_TELEGRAM = 3500  # a API corta em 4096; sobra para cabeçalho
+
+# Em que estado do manifest é a vez de cada bot. Fora disso, negado.
+PODE = {
+    "orquestrador": {"RECEIVED", "TRIAGED"},             # triagem da call e ajuste do GATE 1
+    "pm": {"SPECIFYING"},                                # pós-GATE 1: cria as issues no TUPLE
+    "po": {"SPECIFYING"},
+    "techlead": {"SPECIFYING", "SPEC_APPROVED"},         # story + DoR; pós-GATE 2: specs
+    "dev-front": {"IMPLEMENTING", "CHANGES_REQUESTED"},
+    "dev-back": {"IMPLEMENTING", "CHANGES_REQUESTED"},
+    "qa": {"TESTING"},
+}
+
+# Quem, ao terminar, tem obrigação de mover o estado. Terminar sem mover é aviso.
+DEVE_MOVER = {"orquestrador", "techlead", "qa"}
+
+
+def agora():
+    return dt.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def cfg(nome):
+    """Variável do ambiente ou, na falta, do ~/.hermes/.env. O gateway roda como serviço
+    (systemd / tarefa do Windows) e não herda o shell do usuário: sem isto, o comando que
+    chega do Telegram não saberia onde ficam os projetos e as calls."""
+    v = os.getenv(nome)
+    if v:
+        return v
+    env = os.getenv("HERMES_HOME")
+    raiz = Path(env) if env else (
+        Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "hermes"
+        if sys.platform == "win32" else Path.home() / ".hermes")
+    if raiz.parent.name == "profiles":
+        raiz = raiz.parent.parent
+    f = raiz / ".env"
+    if f.is_file():
+        for linha in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if linha.startswith(nome + "="):
+                return os.path.expanduser(linha.split("=", 1)[1].strip().strip('"\''))
+    return None
+
+
+def die(msg, code=ERRO):
+    print(f"hermes-delegar: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def audit(root, **ev):
+    try:
+        (root / ".hermes").mkdir(exist_ok=True)
+        with open(root / ".hermes" / "audit.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": agora(), **ev}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def dentro(filho, pai):
+    try:
+        Path(filho).resolve().relative_to(Path(pai).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def projeto(p):
+    root = Path(p).expanduser().resolve()
+    if not (root / "AGENTS.md").is_file():
+        die(f"{root} não é pasta de projeto (sem AGENTS.md)", USO)
+    base = cfg("HERMES_PROJETOS")
+    if base and not dentro(root, Path(base).expanduser()):
+        die(f"{root} está fora de $HERMES_PROJETOS ({base})")
+    return root
+
+
+def manifest(root, key):
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", key):
+        die(f"KEY inválida: {key}", USO)
+    mf = root / ".hermes" / "tasks" / key / "manifest.yaml"
+    if not mf.is_file():
+        die(f"tarefa não existe: {mf} (crie com hermes-task new)")
+    return mf
+
+
+def ler_estado(mf):
+    try:
+        m = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None, {}
+    return m.get("estado"), m
+
+
+def hermes_bin():
+    h = shutil.which("hermes")
+    if not h:
+        die("não achei o `hermes` no PATH")
+    return h
+
+
+def vivo(pid):
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if sys.platform == "win32":
+        r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True)
+        return str(pid) in r.stdout
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def gravar(path, dados):
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+# ------------------------------------------------------------------ Telegram
+def avisar(texto, anexo=None):
+    """Manda para o humano pelo Telegram do @orquestrador. Falhar aqui não derruba nada:
+    sem Telegram configurado, o aviso fica só no registro da rodada."""
+    h = shutil.which("hermes")
+    if not h:
+        return False
+    if len(texto) > LIMITE_TELEGRAM:
+        texto = texto[:LIMITE_TELEGRAM] + "\n…(cortado)"
+    ok = subprocess.run([h, "-p", AVISO_PROFILE, "send", "--to", "telegram", "-q", "--file", "-"],
+                        input=texto, text=True, capture_output=True, timeout=60).returncode == 0
+    if ok and anexo and Path(anexo).is_file():
+        subprocess.run([h, "-p", AVISO_PROFILE, "send", "--to", "telegram", "-q", f"MEDIA:{anexo}"],
+                       capture_output=True, text=True, timeout=60)
+    return ok
+
+
+def cauda(path, linhas=12):
+    try:
+        return "\n".join(Path(path).read_text(encoding="utf-8", errors="replace").splitlines()[-linhas:])
+    except OSError:
+        return ""
+
+
+def artefato(root, m, nome):
+    v = ((m.get("artefatos") or {}).get(nome) or "")
+    if not v:
+        return None
+    p = Path(v).expanduser()
+    p = p if p.is_absolute() else root / p
+    return p if p.is_file() else None
+
+
+def aviso_final(reg, m):
+    """O que o humano precisa saber depois da rodada — gate, falha ou silêncio suspeito."""
+    root, key, bot = Path(reg["projeto"]), reg["key"], reg["bot"]
+    antes, depois = reg["estado_antes"], reg["estado_depois"]
+    resposta = Path(reg["saida"]).read_text(encoding="utf-8", errors="replace").strip() \
+        if Path(reg["saida"]).is_file() else ""
+    cab = f"[{root.name}] {key}"
+
+    if reg["status"] != "ok":
+        motivo = "passou do tempo" if reg["status"] == "timeout" else f"saiu com {reg['exit']}"
+        return (f"❌ {cab} · @{bot} {motivo}.\n\n{cauda(reg['erros']) or resposta[-800:]}\n\n"
+                f"Log: {reg['erros']}"), None
+
+    if depois == "AWAITING_APPROVAL" and antes != depois:
+        return (f"🚦 GATE 1 · {cab}\n\n{resposta}\n\n"
+                f"/aprovar {key}\n/ajustar {key} <o que mudar>\n/rejeitar {key} <motivo>"), \
+            artefato(root, m, "proposta")
+    if depois == "AWAITING_SPEC_APPROVAL" and antes != depois:
+        return (f"🚦 GATE 2 · {cab}\n\n{resposta}\n\n"
+                f"/aprovar {key}\n/ajustar {key} <o que mudar>\n/rejeitar {key} <motivo>"), \
+            artefato(root, m, "story")
+    if depois == "AWAITING_REVIEW" and antes != depois:
+        pr = (m.get("artefatos") or {}).get("pr") or "?"
+        return (f"✅ GATE 3 · {cab} passou no QA (DoD aceito pelo hermes-task).\n\n"
+                f"PR para você revisar e fazer o merge: {pr}\n\n{resposta[-1200:]}"), None
+    if depois == "BLOCKED" and antes != depois:
+        ult = (m.get("historico") or [{}])[-1]
+        motivo = (ult.get("evidencias") or {}).get("motivo") or ult.get("por") or "?"
+        return f"⛔ {cab} BLOCKED por @{bot}: {motivo}\n\n{resposta[-1500:]}", None
+    if bot in DEVE_MOVER and antes == depois:
+        return (f"⚠️ {cab} · @{bot} terminou sem mover a tarefa (segue em {depois}).\n\n"
+                f"{resposta[-1500:]}\n\nSaída: {reg['saida']}"), None
+    return None, None
+
+
+# ------------------------------------------------------------------ rodada
+PROMPT = """Você foi chamado pelo `hermes-delegar` para a tarefa {key} do projeto abaixo.
+Esta é uma sessão só desta tarefa: não existe conversa de outro cliente aqui.
+
+- Projeto (seu diretório atual): {projeto}
+- Tarefa: {key} — estado agora: {estado}
+- Handoff desta etapa: {handoff}
+
+Antes de agir: leia o AGENTS.md do projeto, o handoff acima e o manifest
+(`hermes-task show "{projeto}" {key}`). Siga seu SOUL e as skills `fluxo-time` e
+`estado-tarefa`. Mude o estado só com `hermes-task`.
+
+Para passar o trabalho adiante: escreva o próximo handoff em
+{projeto}/.hermes/tasks/<KEY>/handoffs/<NN>-{bot}-para-<bot>.md e rode
+`hermes-delegar <bot> "{projeto}" <KEY> <handoff>`. Não use `message_agent` para
+trabalho, e não mande o gate para o humano: quem manda é o hermes-delegar, quando o
+estado chegar lá.
+
+Termine com um resumo de no máximo 8 linhas — ele vai para o humano no Telegram.
+
+--- handoff ---
+{conteudo}
+"""
+
+
+def preparar(a):
+    bot = a.bot.lstrip("@")
+    if bot not in PODE:
+        die(f"bot desconhecido: {bot} (existem: {', '.join(PODE)})", USO)
+    root = projeto(a.projeto)
+    mf = manifest(root, a.key)
+    estado, _ = ler_estado(mf)
+    if estado not in PODE[bot]:
+        audit(root, tipo="delegar-negado", task=a.key, bot=bot, estado=estado)
+        die(f"NEGADO: @{bot} não entra em {a.key} no estado {estado} "
+            f"(a vez dele é em: {', '.join(sorted(PODE[bot]))})")
+    handoff = Path(a.handoff).expanduser()
+    handoff = (handoff if handoff.is_absolute() else Path.cwd() / handoff).resolve()
+    pasta_ok = root / ".hermes" / "tasks" / a.key / "handoffs"
+    if not handoff.is_file() or not dentro(handoff, pasta_ok):
+        die(f"handoff tem que existir dentro de {pasta_ok}")
+
+    runs = root / ".hermes" / "runs" / a.key
+    runs.mkdir(parents=True, exist_ok=True)
+    trava = runs / f"{bot}.lock"
+    if trava.exists():
+        pid = trava.read_text(encoding="utf-8", errors="replace").strip()
+        if vivo(pid):
+            die(f"@{bot} já está rodando em {a.key} (pid {pid}); espere terminar", OCUPADO)
+        trava.unlink(missing_ok=True)   # trava de rodada que morreu
+
+    ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    base = runs / f"{ts}-{bot}"
+    prompt = Path(str(base) + ".prompt.md")
+    prompt.write_text(PROMPT.format(
+        key=a.key, projeto=root, estado=estado, handoff=handoff, bot=bot,
+        conteudo=handoff.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
+    reg = {
+        "bot": bot, "projeto": str(root), "key": a.key, "sessao": f"{a.key}-{bot}",
+        "handoff": str(handoff), "prompt": str(prompt), "estado_antes": estado,
+        "estado_depois": None, "status": "agendado", "exit": None,
+        "criado": agora(), "inicio": None, "fim": None,
+        "timeout_min": a.timeout, "trava": str(trava),
+        "saida": str(base) + ".out.md", "erros": str(base) + ".err.log",
+    }
+    arq = Path(str(base) + ".json")
+    gravar(arq, reg)
+    audit(root, tipo="delegar", task=a.key, bot=bot, estado=estado, handoff=str(handoff))
+    return arq
+
+
+def supervisionar(arq):
+    arq = Path(arq)
+    reg = json.loads(arq.read_text(encoding="utf-8"))
+    root, bot = Path(reg["projeto"]), reg["bot"]
+    trava = Path(reg["trava"])
+    trava.write_text(str(os.getpid()), encoding="utf-8")
+    cmd = [hermes_bin(), "-p", bot, "chat", "--in", str(root),
+           "--continue", reg["sessao"], "--create-if-missing",
+           "--query-file", reg["prompt"], "--oneshot", "-Q"]
+    reg.update(status="rodando", inicio=agora(), cmd=cmd)
+    gravar(arq, reg)
+    extra = {"start_new_session": True} if sys.platform != "win32" else \
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    try:
+        with open(reg["saida"], "w", encoding="utf-8") as out, \
+                open(reg["erros"], "w", encoding="utf-8") as err:
+            proc = subprocess.Popen(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=out, stderr=err, **extra)
+            try:
+                code = proc.wait(timeout=int(reg["timeout_min"]) * 60)
+                reg["status"] = "ok" if code == 0 else "falhou"
+            except subprocess.TimeoutExpired:
+                matar(proc)
+                code = None
+                reg["status"] = "timeout"
+        reg["exit"] = code
+    except OSError as e:
+        reg.update(status="falhou", exit=None, erro=str(e))
+    finally:
+        trava.unlink(missing_ok=True)
+
+    estado, m = ler_estado(root / ".hermes" / "tasks" / reg["key"] / "manifest.yaml")
+    reg.update(fim=agora(), estado_depois=estado)
+    texto, anexo = aviso_final(reg, m)
+    if texto:
+        reg["avisado"] = avisar(texto, anexo)
+    gravar(arq, reg)
+    audit(root, tipo="delegar-fim", task=reg["key"], bot=bot, status=reg["status"],
+          de=reg["estado_antes"], para=estado)
+    return OK if reg["status"] == "ok" else ERRO
+
+
+def matar(proc):
+    """Timeout: derruba o bot e tudo que ele abriu (kiro-cli, terminal, testes)."""
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+
+
+def destacar(arq):
+    """Solta o supervisor do processo que chamou: o bot que delegou termina o turno
+    dele, e a rodada do outro segue sozinha."""
+    cmd = [sys.executable, os.path.abspath(__file__), "_supervisionar", str(arq)]
+    if sys.platform == "win32":
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, creationflags=flags, close_fds=True)
+    else:
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+
+
+def cmd_status(a):
+    root = projeto(a.projeto)
+    base = root / ".hermes" / "runs"
+    alvos = [base / a.key] if a.key else sorted(p for p in base.glob("*") if p.is_dir())
+    for d in alvos:
+        for f in sorted(d.glob("*.json"))[-10:]:
+            r = json.loads(f.read_text(encoding="utf-8"))
+            print(f"{r['key']:14} @{r['bot']:12} {r['status']:9} {r['estado_antes'] or '?'} → "
+                  f"{r['estado_depois'] or '…'}  {r['criado']}")
+    return OK
+
+
+def main(argv):
+    if argv[:1] == ["_supervisionar"]:
+        return supervisionar(argv[1])
+    if argv[:1] == ["status"]:
+        ap = argparse.ArgumentParser(prog="hermes-delegar status")
+        ap.add_argument("projeto"); ap.add_argument("key", nargs="?")
+        return cmd_status(ap.parse_args(argv[1:]))
+    ap = argparse.ArgumentParser(prog="hermes-delegar", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("bot"); ap.add_argument("projeto"); ap.add_argument("key"); ap.add_argument("handoff")
+    ap.add_argument("--esperar", action="store_true", help="roda em primeiro plano e devolve o código do bot")
+    ap.add_argument("--timeout", type=int, default=TIMEOUT_PADRAO, help="minutos (padrão %(default)s)")
+    a = ap.parse_args(argv)
+    arq = preparar(a)
+    if a.esperar:
+        return supervisionar(arq)
+    destacar(arq)
+    reg = json.loads(arq.read_text(encoding="utf-8"))
+    print(f"@{reg['bot']} disparado em {reg['key']} (sessão {reg['sessao']}). "
+          f"Resultado: {arq}. O humano é avisado no Telegram se houver gate, falha ou BLOCKED.")
+    return OK
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

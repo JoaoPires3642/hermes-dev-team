@@ -31,6 +31,16 @@ platform_toolsets:
     - terminal
     - browser
 
+approvals:
+  deny:
+    - "*--by humano*"
+    - "*--by=humano*"
+    - "*--by @humano*"
+    - "*call-dispatch*"
+    - "*hermes-delegar orquestrador*"
+    - "*hermes -p *"
+    - "*hermes chat*"
+
 browser:
   backend: "browser-use"
   cloud_provider: "local"

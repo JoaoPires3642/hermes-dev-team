@@ -6,13 +6,15 @@
 ## 1. Entradas
 - **Call** → **OpenWhispr** (open source, MIT): transcreve e separa quem falou **localmente**,
   sem bot entrar na reunião. O `openwhispr-notes` lê o SQLite dele e escreve uma nota Markdown
-  por call em `~/Documents/_calls/<cliente>/`. Cliente = **pasta da reunião no app** (crie uma por
-  cliente); sem isso, o prefixo `[Cliente]` do título; sem nenhum dos dois cai em `_sem-cliente/`
-  e o bot pergunta de quem é — nunca deduz pelo conteúdo.
-  > **Por evento, não por horário.** O exportador roda de 15 em 15 min (custo zero, é só Python
-  > lendo SQLite) e **só acorda o @orquestrador quando criou nota**, via `--ao-criar`. Sem isso a
-  > routine reprocessava as mesmas notas a cada ciclo — e o bot chegou a tentar desligar a
-  > própria routine, com razão. Quem sabe o que é novo é o exportador, não o bot.
+  por call em `~/Documents/_calls/<cliente>/`. A pasta da reunião no app vira só **sugestão**
+  de cliente: quem decide é o humano.
+  > **Por evento, e o humano diz o cliente.** O exportador roda de 15 em 15 min (custo zero, é só
+  > Python lendo SQLite) e, **só quando criou nota**, chama o `call-dispatch varrer` (`--ao-criar`).
+  > Cada nota vira `CALL-N` e o humano recebe no Telegram *"de qual cliente?"*. Nenhum modelo
+  > roda até ele responder `/cliente CALL-N <projeto>` — call pessoal ou de teste se ignora
+  > (`/ignorar`) e não custa nada. Com a resposta, o `call-dispatch` confere que
+  > `$HERMES_PROJETOS/<projeto>/AGENTS.md` existe (nunca chuta o parecido) e abre uma sessão
+  > do @orquestrador **só daquela call**, na pasta do projeto (§2).
   > **A API e o MCP do OpenWhispr são em nuvem e pedem plano pago**; não são usados. Ler o SQLite
   > é grátis e local, mas **não é contrato público**: mudança de schema dele quebra a ponte
   > (foi o que aconteceu com o `transcript`, que é JSON de segmentos e não texto).
@@ -27,33 +29,39 @@
   `kiro-cli`, que é a conta da empresa e onde vivem os agentes Kiro e o grafo do código.
   O @orquestrador é o único que lê entrada externa não confiável, então é o que menos se
   economiza; o @pm faz trabalho quase mecânico todo dia útil, então é o mais barato.
-- **@orquestrador** recebe tudo e resume → **GATE 1** (aprovação humana do resumo e
-  das issues propostas) → cria issues no TUPLE e chama os bots por @menção.
-- Bots conversam por **@menção / message_agent**, e isso tem **duas** condições, não uma:
-  1. o profile precisa de `profile.yaml` com a chave `hermes-bots` (aba Bots do Desktop; o
-     `hermes profile install` não cria). Os 7 têm — verificado em 29/09/2026.
-  2. a **sessão** precisa se chamar exatamente `Bot Chat`. O portão está em
-     `tools/bot_mode_dm.py` (`_session_title(agent) == BOT_CHAT_TITLE`), e a seção do
-     protocolo no system prompt, que carrega o roster, repete a condição em
-     `agent/system_prompt.py`.
-
-  A segunda é a que engana. Numa aba nova o bot sobe **inteiro** — modelo, as 62 skills,
-  SOUL, AGENTS.md — e mesmo assim não enxerga ninguém: vira um bot solo que não sabe que
-  o time existe. Testado nos dois sentidos no mesmo profile: em sessão nova o @orquestrador
-  responde que não tem a ferramenta; no `Bot Chat` ele lista o roster inteiro. O custo é o
-  silêncio — ele fecha um GATE prometendo *"distribuo S1 para @techlead"* sem ter como.
-
-  As sessões `Bot Chat` são **ocultas por design** ("Bot Mode always HIDES canonical chats"),
-  então `hermes sessions list` não mostra nenhuma: não confunda ausente com inexistente.
-  O instalador cria a de cada bot; para conferir de fora, é consulta ao `state.db`.
-
-  Ou seja, a ideia de **"sem sala obrigatória" não se sustenta**: a sala é o único lugar
-  onde a ferramenta existe.
-- **@techlead** escreve a story BMAD (DoR) → **GATE 2** (aprovação humana) → gera
-  `.kiro/specs` e libera @dev-front / @dev-back.
+- **Sessão por tarefa, nunca a Bot Chat.** Trabalho vai pelo `hermes-delegar`, que abre
+  `hermes -p <bot> chat --in <projeto> --continue <KEY>-<bot>`: sessão com nome próprio por
+  tarefa e por bot, na pasta do cliente, com o `AGENTS.md` dele e **zero histórico de outro
+  cliente**. A mesma tarefa retoma a mesma conversa (ajuste de gate volta com contexto).
+  Motivo: a `Bot Chat` é **uma por bot, eterna, na home**, e junta todos os clientes; quando
+  enche, o Hermes compacta e o bot responde sobre o projeto errado sem erro nenhum na tela.
+  O `hermes-delegar` também confere em código o que a skill não garante: pasta é projeto
+  dentro de `$HERMES_PROJETOS`, handoff na pasta da tarefa, e **é a vez daquele bot** no
+  estado do manifest (ninguém chega no dev antes do GATE 2). Roda destacado; um supervisor
+  grava o resultado em `<projeto>/.hermes/runs/<KEY>/` e avisa no Telegram gate, falha,
+  timeout e `BLOCKED`.
+- **Gates pelo Telegram, registrados por código.** O humano responde com comando —
+  `/cliente`, `/aprovar`, `/ajustar`, `/rejeitar`, `/ignorar`, `/pendentes` — e o plugin
+  `hermes-gates` (só no profile do @orquestrador) roda no gateway **depois da autorização e
+  antes de qualquer turno do modelo**: repassa ao `call-dispatch` com
+  `--via telegram:<uid>:<msg>`, que confere o `uid` em `TELEGRAM_ALLOWED_USERS` e só então
+  registra `--by humano` no `hermes-task`. A aprovação nunca é a palavra de um bot.
+  Bots não podem rodar `call-dispatch`, `hermes -p`/`hermes chat` cru, nem `--by humano`:
+  `approvals.deny` no Hermes (vale até sob `--yolo`) e regra de negação no Kiro. Limite
+  honesto: os bots rodam como o mesmo usuário do SO, então isso é cerca, não cofre.
+- **Fluxo:** `/cliente` → @orquestrador (sessão `CALL-N`) → resumo + proposta →
+  **GATE 1** → `/aprovar` → @pm cria as issues no TUPLE, cada uma com
+  `hermes-task new <ISSUE> --herda-gate1 CALL-N` (nasce em `SPECIFYING`) → @po escreve as
+  stories → @techlead, uma rodada por issue → **GATE 2** → `/aprovar` → @techlead gera o
+  `.kiro/specs` e libera os devs → último dev a entregar chama o @qa → **GATE 3** (PR).
+- **`message_agent` / Bot Chat** ficam para recado curto. Duas condições para existir:
+  `profile.yaml` com `hermes-bots` e sessão chamada exatamente `Bot Chat` (portão em
+  `tools/bot_mode_dm.py`); o instalador cria as duas. As `Bot Chat` são ocultas por design
+  (`hermes sessions list` não mostra). Chat do bot aberto no Desktop bloqueia a entrega
+  (`target_busy`) e a mensagem se perde — mais um motivo para trabalho não passar por ali.
 - **@pm** routine diária no TUPLE.
 - **Handoff sintetizado**: cada passagem de bastão é um artefato curto em
-  `<projeto>/.hermes/handoffs/<KEY>/` (contrato, arquivos, CAs, pendências) — nunca o log inteiro.
+  `<projeto>/.hermes/tasks/<KEY>/handoffs/` (contrato, arquivos, CAs, pendências) — nunca o log inteiro.
 - Skills: `fluxo-time`, `kanban-tuple`, `git-workflow`, `bmad-story` (globais), `transcricao-crua`
   (só @orquestrador: ASR bruto, marcar incerteza, separar decisão de hipótese) + steering do cliente.
 - Chave do TUPLE por projeto (`.hermes/tuple.env`), usada só via `tuple-api`; nada em skill/SOUL/profile.
@@ -106,13 +114,14 @@
 - ⚠️ Push liberado para @dev e @qa → permissões do Kiro + token git mínimo.
 - ⚠️ Branch compartilhada com humanos → `pull --rebase` antes de todo push, nunca `--force`.
 - 🛡️ Entrada externa só passa pelo @orquestrador; ordem suspeita no texto → não executa e
-  alerta no Telegram; GATE 1 antes de qualquer ação.
+  vira ⚠️ na proposta do GATE 1; nada é criado antes do `/aprovar`.
 - 🛡️ Bots não editam/reatribuem issue de outra pessoa sem OK.
 - ℹ️ Host único: se o PC cair o fluxo pausa; nada se perde (TUPLE + git).
 - ℹ️ Custo: kiro-cli (empresa) + API da Anthropic para os 3 bots de texto. OpenWhispr, Hermes
   e Telegram são grátis. Credencial no pool do Hermes (`hermes auth add anthropic`), nunca no repo.
-- ⚠️ **Todo áudio gravado vira nota que o @orquestrador lê.** O padrão é exportar; call sensível
-  exige desabilitar a tarefa `hermes-dev-team - openwhispr-notes` **antes** de gravar.
+- ⚠️ **Todo áudio gravado vira nota em `_calls/`** (local). O @orquestrador só lê depois do
+  `/cliente`; call sensível → `/ignorar`. Para nem exportar, desabilite o agendamento
+  (`hermes-dev-team - openwhispr-notes` no Windows, `hermes-calls.timer` no Linux) **antes** de gravar.
 - ℹ️ Windows: `install-windows.sh` cobre o que o `install.sh` não faz aqui (hermes.cmd,
   HERMES_HOME em `%LOCALAPPDATA%`, wrappers dos scripts Python).
 - ℹ️ Gateway: um por máquina (`hermes gateway install`, sem `-p`), serve os 7 profiles. Sobe no

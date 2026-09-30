@@ -48,6 +48,21 @@ for _fluxo in (sys.stdout, sys.stderr):
         pass
 
 
+def _do_env_hermes(nome):
+    raiz = Path(os.getenv("HERMES_HOME") or (
+        Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "hermes"
+        if sys.platform == "win32" else Path.home() / ".hermes"))
+    if raiz.parent.name == "profiles":
+        raiz = raiz.parent.parent
+    try:
+        for linha in (raiz / ".env").read_text(encoding="utf-8", errors="replace").splitlines():
+            if linha.startswith(nome + "="):
+                return os.path.expanduser(linha.split("=", 1)[1].strip().strip("\"'")) or None
+    except OSError:
+        pass
+    return None
+
+
 def inbox_padrao():
     """Onde as notas de call são escritas.
 
@@ -56,9 +71,11 @@ def inbox_padrao():
     da sincronização — o motivo de usar OpenWhispr foi justamente transcrever sem
     o áudio sair da máquina. Pasta de OneDrive é ignorada aqui mesmo que exista.
 
-    HERMES_CALLS manda, se definida.
+    HERMES_CALLS manda, se definida — no ambiente ou no ~/.hermes/.env (agendado, o
+    job não herda o shell do usuário; e o call-dispatch lê do mesmo lugar, então os
+    dois concordam sobre onde fica a pasta).
     """
-    env = os.getenv("HERMES_CALLS")
+    env = os.getenv("HERMES_CALLS") or _do_env_hermes("HERMES_CALLS")
     if env:
         return Path(env) if env.endswith("_calls") else Path(env) / "_calls"
 

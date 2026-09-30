@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hermes-task — manifest + máquina de estados da tarefa (a regra fica no código, não no prompt).
 
-  hermes-task new   <projeto> <KEY> --objetivo TXT --agentes dev-back[,dev-front] [--ui]
+  hermes-task new   <projeto> <KEY> --objetivo TXT --agentes dev-back[,dev-front] [--ui] [--herda-gate1 CALL-N]
   hermes-task show  <projeto> <KEY>
   hermes-task set   <projeto> <KEY> campo=valor ... --by <ator>
   hermes-task move  <projeto> <KEY> <ESTADO> --by <ator> [--ev chave=valor ...]
@@ -94,6 +94,7 @@ TRANSICOES = {
     ("TRIAGED", "AWAITING_APPROVAL"): ({"orquestrador"}, {"proposta": "arquivo"}),
     ("AWAITING_APPROVAL", "SPECIFYING"): (H, {"issues": "texto", "via": "texto"}),        # GATE 1
     ("AWAITING_APPROVAL", "CLOSED"): (H, {"motivo": "texto"}),
+    ("AWAITING_APPROVAL", "TRIAGED"): (H, {"motivo": "texto"}),                          # GATE 1: ajustar
     ("SPECIFYING", "AWAITING_SPEC_APPROVAL"): ({"techlead"}, {"story": "arquivo", "dor": "ok"}),
     ("AWAITING_SPEC_APPROVAL", "SPEC_APPROVED"): (H, {"via": "texto"}),                  # GATE 2
     ("AWAITING_SPEC_APPROVAL", "SPECIFYING"): (H, {"motivo": "texto"}),
@@ -219,6 +220,18 @@ def cmd_new(a):
     agentes = [x.strip() for x in a.agentes.split(",") if x.strip()]
     if not set(agentes) <= BOTS:
         die(f"agentes inválidos: {agentes}", 2)
+    # Issue nascida de uma call já aprovada: o GATE 1 foi dado na call (CALL-N), não
+    # nesta KEY. Ela nasce em SPECIFYING com a aprovação herdada — e só se a call
+    # tiver mesmo passado pelo GATE 1, senão seria um jeito de pular o gate.
+    herdado = None
+    if a.herda_gate1:
+        _, mf_call = paths(root, a.herda_gate1)
+        call = load(mf_call)
+        g1 = (call.get("aprovacoes") or {}).get("gate1")
+        if not g1:
+            audit(root, tipo="negado", task=a.key, motivo=f"herda-gate1 de {a.herda_gate1} sem GATE 1")
+            die(f"NEGADO: {a.herda_gate1} não tem GATE 1 aprovado")
+        herdado = {**g1, "herdado_de": a.herda_gate1}
     (d / "handoffs").mkdir(parents=True)
     m = {
         "task_id": a.key, "objetivo": a.objetivo, "estado": "RECEIVED", "estado_anterior": None,
@@ -232,8 +245,13 @@ def cmd_new(a):
                       "relatorio_testes": None, "revisao": None, "pr": None, "screenshots": []},
         "historico": [{"em": agora(), "para": "RECEIVED", "por": "orquestrador"}],
     }
+    if herdado:
+        m["estado"] = "SPECIFYING"
+        m["aprovacoes"]["gate1"] = herdado
+        m["historico"].append({"em": agora(), "de": "RECEIVED", "para": "SPECIFYING",
+                               "por": "gate1-herdado", "evidencias": {"call": a.herda_gate1}})
     save(mf, m)
-    audit(root, tipo="new", task=a.key, agentes=agentes)
+    audit(root, tipo="new", task=a.key, agentes=agentes, herda_gate1=a.herda_gate1)
     print(mf)
 
 
@@ -405,7 +423,8 @@ def main():
     s = p.add_subparsers(dest="cmd", required=True)
     n = s.add_parser("new"); n.add_argument("projeto"); n.add_argument("key")
     n.add_argument("--objetivo", required=True); n.add_argument("--agentes", required=True)
-    n.add_argument("--ui", action="store_true"); n.set_defaults(f=cmd_new)
+    n.add_argument("--ui", action="store_true"); n.add_argument("--herda-gate1", dest="herda_gate1")
+    n.set_defaults(f=cmd_new)
     x = s.add_parser("show"); x.add_argument("projeto"); x.add_argument("key"); x.set_defaults(f=cmd_show)
     x = s.add_parser("set"); x.add_argument("projeto"); x.add_argument("key"); x.add_argument("pares", nargs="+")
     x.add_argument("--by", required=True); x.set_defaults(f=cmd_set)

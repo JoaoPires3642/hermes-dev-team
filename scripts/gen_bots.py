@@ -18,6 +18,16 @@ FORMAS = {
 }
 
 FINGIR_HUMANO = ["hermes-task * --by humano*", "hermes-task *--by=humano*"]
+# Gate e delegação são do código, não do bot. `call-dispatch` só o humano aciona (pelo
+# plugin hermes-gates no Telegram); o @orquestrador só nasce pelo call-dispatch; e
+# `hermes -p`/`hermes chat` cru pularia as checagens do hermes-delegar (pasta, estado,
+# handoff). Vale para o Kiro (padrão no início do comando) e, abaixo, para o Hermes.
+PULAR_GATE = ["call-dispatch*", "hermes-delegar orquestrador*", "hermes -p*", "hermes chat*"]
+# approvals.deny do Hermes: fnmatch no comando INTEIRO, por isso o * dos dois lados.
+# Bloqueia até sob --yolo. É o que segura @orquestrador/@po/@pm, que saíram do Kiro e
+# não passam mais pela política dele.
+HERMES_DENY = ["*--by humano*", "*--by=humano*", "*--by @humano*", "*call-dispatch*",
+               "*hermes-delegar orquestrador*", "*hermes -p *", "*hermes chat*"]
 
 BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 
@@ -77,7 +87,7 @@ BOTS = {
         "kiro_allowed": ["read", "write", "shell", "@codebase-memory-mcp"],
         "kiro_rules": [
             {"capability": "fs_write", "match": ["docs/**", ".kiro/**", ".hermes/tasks/**"], "effect": "allow"},
-            {"capability": "shell", "match": [TUPLE_CURL, TASK, "git log*", "git diff*", "git status*", "git show*"], "effect": "allow"},
+            {"capability": "shell", "match": [TUPLE_CURL, TASK, "hermes-delegar *", "git log*", "git diff*", "git status*", "git show*"], "effect": "allow"},
         ],
     },
 }
@@ -184,6 +194,8 @@ browser:
     # não confiável, e o @pm faz trabalho quase mecânico que não paga modelo caro.
     modelo = b.get("model", "auto")
     provedor = b.get("provider", "kiro-acp")
+    # o plugin dos gates só no @orquestrador: é o Telegram dele que fala com o humano
+    plugins = '\nplugins:\n  enabled:\n    - hermes-gates\n' if name == "orquestrador" else ""
     (d / "config.yaml").write_text(f"""# Bot @{name} — gerado por scripts/gen_bots.py
 model:
   default: "{modelo}"
@@ -202,7 +214,11 @@ platform_toolsets:
 {yaml_list(b['toolsets'], 4)}
   telegram:
 {yaml_list(b['toolsets'], 4)}
-{browser}{mcp}""", encoding="utf-8", newline="\n")
+
+approvals:
+  deny:
+{yaml_list([f'"{x}"' for x in HERMES_DENY], 4)}
+{plugins}{browser}{mcp}""", encoding="utf-8", newline="\n")
 
     # profile.yaml — SEM ele o Hermes não reconhece o profile como Bot Mode e não injeta
     # o `message_agent`: os bots simplesmente não conseguem se chamar por @menção. Quem
@@ -232,6 +248,7 @@ platform_toolsets:
     rules = list(b["kiro_rules"])
     if name != "orquestrador" and not any(r["effect"] == "deny" for r in rules):
         rules.append({"capability": "shell", "match": FINGIR_HUMANO, "effect": "deny"})
+    rules.append({"capability": "shell", "match": PULAR_GATE, "effect": "deny"})
     agent = {
         "name": f"hermes-{name}",
         "description": f"Sessão kiro-cli do bot @{name} (Hermes). {b['desc']}",

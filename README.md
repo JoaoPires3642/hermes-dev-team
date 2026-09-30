@@ -4,10 +4,13 @@ Time de bots de dev no **Hermes Agent (Bot Mode)**, com o **kiro-cli** como cér
 motor de execução. Tudo que é decidido vira issue no **TUPLE** (fonte da verdade).
 
 ```
-Entradas (nota de call do OpenWhispr · issue no TUPLE · artefatos/PBIs)
-  → @orquestrador → GATE 1 (humano) → issues no TUPLE + sala do projeto
-  → @po / @techlead → story BMAD (DoR) → GATE 2 (humano) → .kiro/specs
+Call nova (OpenWhispr, job a cada 15 min) → Telegram: "de qual cliente?" → /cliente CALL-N <projeto>
+  → @orquestrador, numa sessão só daquela call → GATE 1 (/aprovar no Telegram)
+  → @pm cria as issues no TUPLE → @po → @techlead → GATE 2 (/aprovar)
   → @dev-front / @dev-back → @qa (loop até passar) → PR → GATE 3 (humano, merge)
+
+Cada bot trabalha numa sessão NOVA por tarefa, na pasta do cliente (hermes-delegar):
+nada de conversa de um cliente vazando para outro.
 ```
 
 Arquitetura completa: [docs/arquitetura.md](docs/arquitetura.md).
@@ -16,9 +19,9 @@ Arquitetura completa: [docs/arquitetura.md](docs/arquitetura.md).
 
 | Bot | Papel | Pet | Kiro pode |
 |---|---|---|---|
-| @orquestrador | entradas, resumo, GATE 1, distribui | octopus | ler + tuple-api |
+| @orquestrador | triagem da call (resumo + proposta → GATE 1); no Telegram, só orienta | octopus | ler + tuple-api |
 | @po | dor → user story, PRD/épicos | peri-the-owl | ler, escrever `docs/`, tuple-api |
-| @pm | prazo, cycles, impedimentos (routine diária) | capybara-lulu | ler + tuple-api |
+| @pm | cria as issues aprovadas no GATE 1; prazo, cycles, impedimentos (routine diária) | capybara-lulu | ler + tuple-api |
 | @techlead | story BMAD + DoR, GATE 2, `.kiro/specs` | pipe-wrench-robot | ler, escrever `docs/` e `.kiro/`, git leitura, tuple-api |
 | @dev-front | implementa front, confere a tela no navegador, commit/push, PR | foxlynn | ler, escrever, shell (sem force/reset --hard/--no-verify) |
 | @dev-back | implementa back, commit/push, PR | fat-robot | idem |
@@ -48,8 +51,8 @@ Depois, uma vez por máquina:
 
 1. `kiro-cli login`
 2. Instalar o [OpenWhispr](https://github.com/OpenWhispr/openwhispr) (MIT, local: transcreve e
-   separa quem falou sem o áudio sair da máquina). Crie **uma pasta por cliente** dentro dele e
-   grave a reunião lá — é de onde sai o cliente/projeto; o prefixo `[Cliente]` no título é reserva
+   separa quem falou sem o áudio sair da máquina). Uma pasta por cliente dentro dele ajuda: o
+   nome vira a **sugestão** na pergunta "de qual cliente?" — quem decide é você, no `/cliente`
 3. Hermes Desktop → Settings → Advanced → **Warm Bot Backends = 7**
 4. Telegram — são **dois** passos, e o segundo é o que costuma faltar:
    - `hermes -p orquestrador gateway setup` — interativo, pede o token do @BotFather
@@ -57,13 +60,19 @@ Depois, uma vez por máquina:
      sem `-p`). É **um gateway por máquina**, que serve os 7 bots; instalar por profile
      é recusado para não colocar dois pollers no mesmo token.
    - conferir: `hermes gateway status`
-5. Routines no Desktop (aba Bots → Routines):
-   - @orquestrador: a cada 15 min — "rodar `meetily-notes novas` e ler as notas novas em
-     ~/Documents/_calls/, mais as issues marcadas no TUPLE"
-   - @pm: dias úteis 9h — "resumo do board: IN_PROGRESS parado, BLOCKED, IN_REVIEW"
-6. `HERMES_PROJETOS` — variável de ambiente apontando a pasta que contém os projetos
-   (numa máquina com OneDrive corporativo, costuma ser `~/OneDrive - <Org>/Documentos`).
-   As notas de call ficam à parte, em `~/Documents/_calls` — fora da sincronização.
+   - no `.env` de cada profile com Telegram (`~/.hermes/profiles/<bot>/.env`):
+     `TELEGRAM_ALLOWED_USERS=<seu id>` (o @userinfobot diz) e `TELEGRAM_HOME_CHANNEL=<seu id>`
+     — sem o primeiro o bot ignora você; sem o segundo o `hermes send` (gates, avisos) não
+     tem para onde mandar. Depois `hermes gateway restart`.
+5. `HERMES_PROJETOS` no **`~/.hermes/.env`** — a pasta que contém os projetos (numa máquina
+   com OneDrive corporativo, costuma ser `~/OneDrive - <Org>/Documentos`). Vai no `.env` do
+   Hermes, e não só no shell, porque o gateway e o job das calls rodam como serviço e não
+   herdam o seu shell. As notas de call ficam à parte, em `~/Documents/_calls` (fora da
+   sincronização); `HERMES_CALLS` muda isso.
+6. Job das calls: o instalador já agenda (`hermes-calls.timer` no Linux; tarefa
+   `hermes-dev-team - openwhispr-notes` no Windows) — a cada 15 min,
+   `openwhispr-notes novas --ao-criar "call-dispatch varrer"`. Routine no Desktop, só a do
+   @pm: dias úteis 9h — "resumo do board: IN_PROGRESS parado, BLOCKED, IN_REVIEW".
 7. Projeto novo: `cp -r templates/projeto $HERMES_PROJETOS/<Projeto>` (os repos ficam dentro) e preencher:
    - `AGENTS.md` — IDs do TUPLE, repos, branches, restrições (sem segredos)
    - `.kiro/steering/` — arquitetura, segurança, padrões
@@ -86,6 +95,11 @@ bin/kiro-pool        limita sessões kiro-cli simultâneas (padrão 4)
 bin/tuple-api        chama o TUPLE com a chave do projeto (+ audit)
 bin/hermes-task      manifest + máquina de estados + DoD + circuit breaker (regras em código)
 bin/meetily-notes    exporta as calls da Meetily (SQLite local) como Markdown por cliente
+bin/openwhispr-notes exporta as calls do OpenWhispr (SQLite local, com quem-falou) e chama o call-dispatch
+bin/call-dispatch    call nova → "de qual cliente?" no Telegram → sessão do @orquestrador; registra os gates
+bin/hermes-delegar   dá trabalho a outro bot numa sessão NOVA por tarefa, na pasta do cliente (confere estado e gate)
+bin/bot-chat-reset   zera a Bot Chat (caixa de recados) de um bot
+plugins/hermes-gates/ /cliente /aprovar /ajustar /rejeitar /ignorar /pendentes no Telegram, sem passar pelo modelo
 bin/git-bot          git do time com as regras em código (sem force, rebase antes do push)
 templates/projeto/   AGENTS.md, docs/, memory/, .kiro/steering/, .hermes/tuple.env.example de um projeto novo
 install.sh           instala/atualiza tudo nesta máquina
@@ -100,7 +114,10 @@ rode `python3 scripts/gen_bots.py`, commite e `./install.sh`.
 |---|---|
 | estado da tarefa, quem move, evidência, DoD, circuit breaker (3 voltas), escopo travado após a spec | `hermes-task` |
 | arquivos só dentro de `allowed_paths` | `hermes-task` (confere no git antes do DoD) |
-| bot não finge aprovação humana, não faz deploy nem push em main/master, sem force | permissões dos agentes Kiro (`kiro-agents/`) |
+| aprovação humana só pelo Telegram, registrada por código (nunca pela palavra de um bot) | plugin `hermes-gates` → `call-dispatch` (confere `TELEGRAM_ALLOWED_USERS`) |
+| bot não finge aprovação humana (`--by humano`), não roda `call-dispatch` nem `hermes -p` cru | `approvals.deny` do Hermes (vale sob `--yolo`) + regra de negação no Kiro |
+| trabalho em sessão nova por tarefa, na pasta do cliente, só na vez do bot | `hermes-delegar` |
+| não faz deploy nem push em main/master, sem force | permissões dos agentes Kiro (`kiro-agents/`) + `git-bot` |
 | ferramentas por bot | `platform_toolsets` do Hermes |
 | máx. 4 sessões Kiro | `kiro-pool` |
 | chave do TUPLE nunca exposta | `tuple-api` |

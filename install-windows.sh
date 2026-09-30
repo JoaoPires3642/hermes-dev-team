@@ -76,7 +76,7 @@ criar_wrapper() {
   printf '@echo off%s\n"%s" "%s" %%*%s\n' "$CR" "$win" "$REPO_WIN\\bin\\$f" "$CR" >"$BIN_DIR/$f.cmd"
 }
 
-for f in openwhispr-notes git-bot hermes-task bot-chat-reset; do
+for f in openwhispr-notes git-bot hermes-task bot-chat-reset hermes-delegar call-dispatch; do
   [[ -f "$REPO/bin/$f" ]] && criar_wrapper "$f" python python
 done
 for f in tuple-api kiro-pool; do
@@ -112,6 +112,12 @@ for b in "${BOTS[@]}"; do
   else
     # sobra de instalação anterior em que este bot usava kiro-acp
     rm -rf "$prof/plugins/model-providers/kiro-acp"
+  fi
+
+  # gates humanos pelo Telegram — só no @orquestrador (config.yaml já habilita)
+  if [[ "$b" == "orquestrador" ]]; then
+    rm -rf "$prof/plugins/hermes-gates"; mkdir -p "$prof/plugins"
+    cp -r "$REPO/plugins/hermes-gates" "$prof/plugins/hermes-gates"
   fi
 
   # skills compartilhadas + as específicas do bot
@@ -171,11 +177,29 @@ done
 # `-c "Bot Chat" --create-if-missing` e idempotente: reaproveita a que existir.
 say "Bot Chat de cada bot (portao do message_agent)"
 for b in "${BOTS[@]}"; do
+  # O código de saída do ping não serve: com --max-turns 1, o bot que tenta usar uma
+  # ferramenta é cortado e sai 1 mesmo com a sessão criada. Confere no state.db.
   "$HERMES" -p "$b" chat -c "Bot Chat" --create-if-missing \
-    -q "ping de instalacao" --oneshot -Q --max-turns 1 >/dev/null 2>&1 \
-    && say "  @$b: Bot Chat pronto" \
-    || warn "@$b: Bot Chat nao criou — sem ele este bot nao alcanca os outros"
+    -q "ping de instalacao: responda so 'ok', sem ferramentas" --oneshot -Q --max-turns 1 >/dev/null 2>&1 || true
+  if python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); sys.exit(0 if c.execute("select 1 from sessions where title=?",("Bot Chat",)).fetchone() else 1)' \
+      "$HERMES_ROOT/profiles/$b/state.db" 2>/dev/null; then
+    say "  @$b: Bot Chat pronto"
+  else
+    warn "@$b: Bot Chat nao criou — sem ele este bot nao alcanca os outros"
+  fi
 done
+
+# Job das calls a cada 15 min (Agendador de Tarefas). Mesmo nome da tarefa que já
+# existia: o /F substitui a antiga (que só acordava o @orquestrador) em vez de duplicar.
+# Um .cmd próprio porque as aspas do --ao-criar dentro do /TR do schtasks não
+# sobrevivem; e `python` direto, sem os wrappers, porque a tarefa roda sem o PATH do
+# Git Bash.
+say "Agendando o job das calls (Agendador de Tarefas, a cada 15 min)"
+BIN_WIN="$(cygpath -w "$BIN_DIR" 2>/dev/null || echo "$BIN_DIR")"
+printf '@echo off%s\npython "%s" novas --ao-criar "python \\"%s\\" varrer"%s\n' "$CR" \
+  "$REPO_WIN\\bin\\openwhispr-notes" "$REPO_WIN\\bin\\call-dispatch" "$CR" >"$BIN_DIR/hermes-calls.cmd"
+schtasks //Create //F //SC MINUTE //MO 15 //TN "hermes-dev-team - openwhispr-notes" //TR "\"$BIN_WIN\\hermes-calls.cmd\"" >/dev/null 2>&1 \
+  || warn "não consegui agendar: rode no cmd -> schtasks /Create /F /SC MINUTE /MO 15 /TN \"hermes-dev-team - openwhispr-notes\" /TR \"$BIN_WIN\\hermes-calls.cmd\""
 
 say "Pronto: ${BOTS[*]}"
 cat <<EOF

@@ -31,6 +31,7 @@
         "match": [
           "tuple-api *",
           "hermes-task *",
+          "hermes-delegar *",
           "git log*",
           "git diff*",
           "git status*",
@@ -43,6 +44,16 @@
         "match": [
           "hermes-task * --by humano*",
           "hermes-task *--by=humano*"
+        ],
+        "effect": "deny"
+      },
+      {
+        "capability": "shell",
+        "match": [
+          "call-dispatch*",
+          "hermes-delegar orquestrador*",
+          "hermes -p*",
+          "hermes chat*"
         ],
         "effect": "deny"
       }

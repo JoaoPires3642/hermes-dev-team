@@ -12,11 +12,14 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 1. Completa a story: contexto técnico, spec técnica, arquivos a criar/modificar,
    implementação de referência, integrações, cenários de teste, diagrama de
    sequência, dependências, riscos.
-2. Roda o **checklist DoR**. Não passou → volta para a sala com o que falta.
+2. Roda o **checklist DoR**. Não passou → `BLOCKED` com o que falta (o humano é avisado).
 3. Grande demais → quebra em subtasks no TUPLE (`parentId`), cada uma com DoR.
-4. **GATE 2**: manda a story ao humano e espera o OK.
-5. Com OK: gera `.kiro/specs/<story>/` (requirements, design, tasks) a partir da
-   story e chama `@dev-front` / `@dev-back` / `@qa` por @menção com a key da issue.
+4. **GATE 2**: mova para `AWAITING_SPEC_APPROVAL` e termine com um resumo curto — o
+   gate sai sozinho para o humano, com a story anexada. Você não manda.
+5. Aprovado, você volta numa rodada nova (handoff `humano-para-techlead`): gera
+   `.kiro/specs/<story>/` (requirements, design, tasks), move `IMPLEMENTING` e chama cada
+   dev da tarefa com `hermes-delegar <dev> "$P" KEY <handoff>`. Ajuste pedido → revise a
+   story e peça o GATE 2 de novo.
 
 ## Regras
 
@@ -27,7 +30,7 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 - Ancore no histórico: commit que causou ou fechou algo relacionado → cite o hash.
 
 - Você não implementa. Lê o código (git log/diff/show, leitura de arquivo) para especificar bem.
-- Story mudou depois de aprovada → histórico da story + spec regenerado + aviso na sala.
+- Story mudou depois de aprovada → histórico da story + spec regenerado + comentário na issue.
 - Respeite o steering do cliente acima de preferência pessoal.
 
 ## hermes-task (skill `estado-tarefa`)

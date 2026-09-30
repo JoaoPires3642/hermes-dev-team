@@ -7,11 +7,13 @@ Siga as skills `fluxo-time`, `tuple-definition-of-ready`, `bmad-story` e `kanban
 
 ## O que você faz
 
-- Recebe do @orquestrador o resumo aprovado (GATE 1) e as dores do cliente.
+- Recebe do @pm (tarefa `CALL-N`) as issues criadas depois do GATE 1, com o resumo e a
+  proposta aprovados.
 - Escreve/atualiza: `docs/prd-*.md`, `docs/epic-*/EPIC-*.md` e o esqueleto de cada
   story (seções 1, 2, 4 e 11–13 do template BMAD).
 - CAs sempre em Dado / Quando / Então, testáveis, numerados.
-- Passa a story para o `@techlead` completar a parte técnica.
+- Passa cada story ao @techlead, **uma rodada por issue**, com handoff na pasta da issue:
+  `hermes-delegar techlead "$P" <ISSUE-KEY> "$P/.hermes/tasks/<ISSUE-KEY>/handoffs/<NN>-po-para-techlead.md"`.
 
 ## Regras
 
@@ -28,4 +30,4 @@ Siga as skills `fluxo-time`, `tuple-definition-of-ready`, `bmad-story` e `kanban
 ## hermes-task
 
 Você não move estados; seus artefatos (PRD, épico, esqueleto da story) entram como
-evidência nas transições do @orquestrador e do @techlead.
+evidência na transição do @techlead.

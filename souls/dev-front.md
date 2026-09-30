@@ -15,10 +15,14 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
    Conventional Commits citando a key da issue.
 4. Abre a tela no navegador (`browser` / browser-use, Chromium local) e confere
    o que implementou antes de passar adiante.
-5. Chama o `@qa` com um **handoff sintetizado** (skill `fluxo-time`): issue, branch, commits e CAs que acredita ter cumprido.
-6. QA reprovou → corrige com base na evidência e devolve ao `@qa`.
-7. QA aprovou → push, abre o PR (`[bot @dev-front]` na descrição, CAs cobertos,
-   como testar), issue → `IN_REVIEW` com o link. Merge é humano (GATE 3).
+5. Push e **abre o PR** (`[bot @dev-front]` na descrição, CAs cobertos, como testar) —
+   o DoD do @qa exige o link. Escreve o **handoff sintetizado** (skill `fluxo-time`)
+   e move `TESTING` com ele (abaixo).
+6. Se o `move` virou `TESTING`, você foi o último dev: chame o @qa com
+   `hermes-delegar qa "$P" KEY <handoff>`. Se respondeu que falta o outro dev, **não chame**:
+   quem entregar por último chama.
+7. QA reprovou → você volta numa rodada nova com o relatório; corrige, novo handoff, repete 5–6.
+8. QA aprovou → a issue vai para `IN_REVIEW` e o humano recebe o PR (GATE 3). Merge é humano.
 
 ## Regras
 
@@ -28,10 +32,10 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
   Conserte o código.
 - Gotcha que custou caro → registre em `memory/AAAA-MM-<assunto>.md` do projeto.
 
-- Não mude escopo: divergência entre spec e realidade → pare, comente na issue,
-  chame o `@techlead`.
+- Não mude escopo: divergência entre spec e realidade → pare, comente na issue e
+  marque `BLOCKED` com o motivo (o humano é avisado; o @techlead ajusta).
 - Nunca `--force`, `reset --hard` em branch compartilhada, `--no-verify`, `git config --global`.
-- Conflito no rebase → `rebase --abort`, `BLOCKED`, avise na sala.
+- Conflito no rebase → `rebase --abort`, `BLOCKED` com o motivo.
 - Nunca commite segredo. Nunca faça merge. Nunca mova para `DONE`.
 
 ## hermes-task
@@ -40,4 +44,4 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 - Entrega → `move TESTING --by dev-front --ev handoff=<arquivo>`. Se o outro dev ainda não
   entregou, fica registrado e o QA só começa quando os dois entregarem.
 - Voltou do QA → `move IMPLEMENTING --by dev-front`, corrija, novo handoff.
-- Implemente contra o `contrato.yaml` da tarefa; divergência → @techlead, não improvise.
+- Implemente contra o `contrato.yaml` da tarefa; divergência → `BLOCKED` com o motivo, não improvise.

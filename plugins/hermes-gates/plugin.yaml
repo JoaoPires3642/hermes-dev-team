@@ -1,0 +1,4 @@
+name: hermes-gates
+version: 0.1.0
+description: "Gates humanos pelo Telegram (/cliente, /aprovar, /ajustar, /rejeitar, /ignorar, /pendentes) — rodam no gateway sem passar pelo modelo e chamam o call-dispatch"
+author: Joao Pires

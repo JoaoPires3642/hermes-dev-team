@@ -49,7 +49,7 @@ fi
 # ---------------------------------------------------------------- kiro-pool + agentes Kiro
 python3 -c 'import yaml' 2>/dev/null || die "hermes-task precisa de python3 com PyYAML (Arch: pacman -S python-yaml)"
 
-say "Instalando kiro-pool, tuple-api, hermes-task, meetily-notes, git-bot e bot-chat-reset em $BIN_DIR"
+say "Instalando kiro-pool, tuple-api, hermes-task, meetily-notes, openwhispr-notes, git-bot, bot-chat-reset, hermes-delegar e call-dispatch em $BIN_DIR"
 mkdir -p "$BIN_DIR"
 install -m 755 "$REPO/bin/kiro-pool" "$BIN_DIR/kiro-pool"
 install -m 755 "$REPO/bin/tuple-api" "$BIN_DIR/tuple-api"
@@ -57,6 +57,18 @@ install -m 755 "$REPO/bin/hermes-task" "$BIN_DIR/hermes-task"
 install -m 755 "$REPO/bin/meetily-notes" "$BIN_DIR/meetily-notes"
 install -m 755 "$REPO/bin/git-bot" "$BIN_DIR/git-bot"
 install -m 755 "$REPO/bin/bot-chat-reset" "$BIN_DIR/bot-chat-reset"
+install -m 755 "$REPO/bin/openwhispr-notes" "$BIN_DIR/openwhispr-notes"
+install -m 755 "$REPO/bin/hermes-delegar" "$BIN_DIR/hermes-delegar"
+install -m 755 "$REPO/bin/call-dispatch" "$BIN_DIR/call-dispatch"
+# Shebang absoluto. Dentro do terminal dos bots o primeiro `python3` do PATH é o Python
+# embutido do Hermes, SEM PyYAML: com `#!/usr/bin/env python3` o hermes-task,
+# hermes-delegar e call-dispatch morriam em `import yaml` justo quando um bot chamava
+# (visto no @orquestrador). Fixa o python3 que acabou de passar na checagem acima.
+PY3="$(command -v python3)"
+for f in hermes-task hermes-delegar call-dispatch openwhispr-notes meetily-notes bot-chat-reset git-bot; do
+  [[ -f "$BIN_DIR/$f" ]] && head -1 "$BIN_DIR/$f" | grep -q '^#!/usr/bin/env python3' \
+    && sed -i "1s|.*|#!$PY3|" "$BIN_DIR/$f"
+done
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH";; esac
 
 say "Instalando agentes Kiro em ~/.kiro/agents"
@@ -87,6 +99,13 @@ for b in "${BOTS[@]}"; do
   # provider kiro-acp (plugins de model-provider são por profile)
   mkdir -p "$prof/plugins/model-providers/kiro-acp"
   cp "$REPO"/plugins/model-providers/kiro-acp/{__init__.py,plugin.yaml} "$prof/plugins/model-providers/kiro-acp/"
+
+  # gates humanos pelo Telegram (/aprovar, /cliente...) — só no Telegram do @orquestrador.
+  # O config.yaml gerado já traz `plugins.enabled: [hermes-gates]`.
+  if [[ "$b" == "orquestrador" ]]; then
+    rm -rf "$prof/plugins/hermes-gates"; mkdir -p "$prof/plugins"
+    cp -r "$REPO/plugins/hermes-gates" "$prof/plugins/hermes-gates"
+  fi
 
   # skills compartilhadas
   mkdir -p "$prof/skills"
@@ -136,11 +155,53 @@ done
 # `-c "Bot Chat" --create-if-missing` e idempotente: reaproveita a que existir.
 say "Bot Chat de cada bot (portao do message_agent)"
 for b in "${BOTS[@]}"; do
+  # O código de saída do ping não serve: com --max-turns 1, o bot que tenta usar uma
+  # ferramenta é cortado e sai 1 mesmo com a sessão criada. Confere no state.db.
   hermes -p "$b" chat -c "Bot Chat" --create-if-missing \
-    -q "ping de instalacao" --oneshot -Q --max-turns 1 >/dev/null 2>&1 \
-    && say "  @$b: Bot Chat pronto" \
-    || warn "@$b: Bot Chat nao criou — sem ele este bot nao alcanca os outros"
+    -q "ping de instalacao: responda so 'ok', sem ferramentas" --oneshot -Q --max-turns 1 >/dev/null 2>&1 || true
+  if python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); sys.exit(0 if c.execute("select 1 from sessions where title=?",("Bot Chat",)).fetchone() else 1)' \
+      "$HERMES_ROOT/profiles/$b/state.db" 2>/dev/null; then
+    say "  @$b: Bot Chat pronto"
+  else
+    warn "@$b: Bot Chat nao criou — sem ele este bot nao alcanca os outros"
+  fi
 done
+
+# Job das calls: a cada 15 min, exporta do OpenWhispr e, SÓ se houver call nova,
+# chama o call-dispatch (pergunta "de qual cliente?" no Telegram). É Python lendo
+# SQLite — custo zero quando não há nada. Timer do systemd de usuário (sobrevive a
+# logout com linger, que o gateway já exige).
+if command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then
+  say "Agendando o job das calls (systemd --user, a cada 15 min)"
+  unit="$HOME/.config/systemd/user"; mkdir -p "$unit"
+  cat >"$unit/hermes-calls.service" <<UNIT
+[Unit]
+Description=hermes-dev-team: exporta calls do OpenWhispr e avisa o call-dispatch
+
+[Service]
+Type=oneshot
+Environment=PATH=$BIN_DIR:/usr/local/bin:/usr/bin:/bin
+ExecStart=$BIN_DIR/openwhispr-notes novas --ao-criar "$BIN_DIR/call-dispatch varrer"
+UNIT
+  cat >"$unit/hermes-calls.timer" <<UNIT
+[Unit]
+Description=hermes-dev-team: job das calls a cada 15 min
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl --user daemon-reload
+  systemctl --user enable --now hermes-calls.timer >/dev/null 2>&1 \
+    || warn "não consegui ligar o hermes-calls.timer — veja: systemctl --user status hermes-calls.timer"
+else
+  warn "sem systemd de usuário: agende à mão a cada 15 min:"
+  warn "  $BIN_DIR/openwhispr-notes novas --ao-criar \"$BIN_DIR/call-dispatch varrer\""
+fi
 
 say "Pronto: ${BOTS[*]}"
 cat <<EOF
@@ -151,7 +212,8 @@ Próximos passos (uma vez por máquina):
   3. Hermes Desktop → Settings → Advanced → Warm Bot Backends = 7
   4. Telegram: hermes -p orquestrador gateway setup   # token do @BotFather
      depois:   hermes gateway install                 # gateway do host (sem -p), serve os 7
-  5. Routines no Desktop: @orquestrador (meetily-notes + TUPLE) e @pm (diária)
-  6. Projeto novo: cp -r $REPO/templates/projeto $HERMES_PROJETOS/<Projeto>
+  5. HERMES_PROJETOS (pasta dos projetos) no ~/.hermes/.env — o gateway e o job das calls leem de lá.
+     Routine no Desktop: só o @pm (diária). As calls já estão agendadas (hermes-calls.timer).
+  6. Projeto novo: cp -r $REPO/templates/projeto \$HERMES_PROJETOS/<Projeto>
      preencher AGENTS.md, .kiro/steering/ e .hermes/tuple.env (chave DO projeto, chmod 600)
 EOF

@@ -14,10 +14,11 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
    (passos + o que viu).
 4. Revisa o diff no formato da skill `revisao-codigo` (severidade + veredito) contra os CAs, o steering (arquitetura/segurança) e regressões.
 5. **Reprovou** (circuit breaker da skill `fluxo-time`): volta < 3 → devolve ao dev com
-   handoff sintetizado; **3ª falha → para**, `BLOCKED`, alerta no Telegram e espera humano.
-   A devolução vai ao dev certo (`@dev-front` / `@dev-back`) com evidência:
-   teste, comando, saída, CA violado. Sem opinião vaga.
-6. **Aprovou** → avisa o dev que pode abrir o PR e comenta na issue os CAs verificados.
+   handoff sintetizado; **3ª falha → para**: o `hermes-task` põe `BLOCKED` e o humano é avisado.
+   A devolução vai ao dev certo com evidência (teste, comando, saída, CA violado; sem
+   opinião vaga): `move CHANGES_REQUESTED` e `hermes-delegar <dev-x> "$P" KEY <handoff>`.
+6. **Aprovou** → comenta na issue os CAs verificados e move `AWAITING_REVIEW` com o DoD
+   (o PR já existe: o dev abre antes de te chamar). O humano recebe o PR sozinho (GATE 3).
 
 ## Regras
 

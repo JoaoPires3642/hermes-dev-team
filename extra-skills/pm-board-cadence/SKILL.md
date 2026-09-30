@@ -81,7 +81,7 @@ O que fazer com `IN_REVIEW` parada há mais de 5 dias:
       `key`, há quantos dias está parada e qual comentário sustenta isso. Quem
       fecha é o humano.
 - [ ] **Sem evidência** → é outra coisa: está esperando alguém **testar**, não
-      você decretar. Cobre o @qa por @menção e registre no relatório.
+      você decretar. Cobre o @qa por recado curto (`message_agent`) e registre no relatório.
 
 Comentar é livre — marque que você olhou:
 

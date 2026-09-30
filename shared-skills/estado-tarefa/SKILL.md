@@ -25,7 +25,7 @@ sem evidência (e registra a tentativa em `<projeto>/.hermes/audit.jsonl`).
 
 ```bash
 P=$HERMES_PROJETOS/<Projeto>
-hermes-task new  "$P" KEY --objetivo "..." --agentes dev-back,dev-front [--ui]   # @orquestrador
+hermes-task new  "$P" KEY --objetivo "..." --agentes dev-back,dev-front [--ui] --herda-gate1 CALL-N   # @pm, por issue criada
 hermes-task show "$P" KEY
 hermes-task set  "$P" KEY 'allowed_paths.dev-back=["repos/api/src/clientes/**"]' --by techlead
 hermes-task move "$P" KEY <ESTADO> --by <você> --ev chave=valor ...
@@ -42,7 +42,8 @@ Depois de cada `move`, o comando diz o status do TUPLE: mova lá também (`tuple
 |---|---|---|
 | RECEIVED → TRIAGED | @orquestrador | `resumo=<arquivo>` |
 | TRIAGED → AWAITING_APPROVAL | @orquestrador | `proposta=<arquivo>` (árvore + horas) |
-| AWAITING_APPROVAL → SPECIFYING | **humano** (GATE 1) | `issues=KEYS` `via=telegram:<id>` |
+| AWAITING_APPROVAL → SPECIFYING | **humano** (GATE 1) | `issues=...` `via=telegram:<uid>:<msg>` |
+| AWAITING_APPROVAL → TRIAGED | **humano** (GATE 1: ajustar) | `motivo=...` (volta ao @orquestrador; máx. 3) |
 | SPECIFYING → AWAITING_SPEC_APPROVAL | @techlead | `story=<arq>` `dor=ok` + `contrato=<arq>` se front+back + `allowed_paths` de cada dev |
 | AWAITING_SPEC_APPROVAL → SPEC_APPROVED | **humano** (GATE 2) | `via=...` |
 | SPEC_APPROVED → IMPLEMENTING | @techlead | `specs=<dir>` `branch=<nome>` |
@@ -53,9 +54,16 @@ Depois de cada `move`, o comando diz o status do TUPLE: mova lá também (`tuple
 | MERGED → DEPLOYED / HOMOLOGATING → CLOSED | **humano** | — |
 | qualquer → BLOCKED | qualquer um | `motivo=...` — **só humano tira** |
 
-Aprovação humana chega pelo Telegram/Desktop; quem registra é o @orquestrador com
-`--by humano --ev via=telegram:<id da mensagem>`. Os demais bots são **impedidos pela
-política do Kiro** de usar `--by humano`. Nunca registre aprovação que não aconteceu.
+Aprovação humana chega **por comando no Telegram** (`/aprovar`, `/ajustar`, `/rejeitar`)
+e quem registra `--by humano` é o **`call-dispatch`** — código, chamado pelo plugin
+`hermes-gates` sem modelo no caminho, com `via=telegram:<uid>:<msg>` conferido contra
+`TELEGRAM_ALLOWED_USERS`. **Bot nenhum** usa `--by humano`: bloqueado por
+`approvals.deny` (Hermes) e pela política do Kiro. Humano disse "ok" em texto livre?
+Peça o comando; não registre.
+
+**A call é uma tarefa** (`CALL-N`): o GATE 1 é dado nela. Cada issue que o @pm cria nasce
+com `--herda-gate1 CALL-N` — direto em `SPECIFYING`, com a aprovação herdada; o
+`hermes-task` recusa se a call não tiver GATE 1.
 
 Depois da spec aprovada, `agentes`, `allowed_paths`, `escopo`, `criterios_aceite` e
 `tem_ui` **travam**: só humano muda. Precisou mudar escopo → `BLOCKED` e peça.
