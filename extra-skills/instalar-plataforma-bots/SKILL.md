@@ -1,7 +1,7 @@
 ---
 name: instalar-plataforma-bots
 description: Aplicar mudanças do repo hermes-dev-team nos bots.
-version: 1.0.0
+version: 1.1.0
 author: Hermes Orquestrador
 license: MIT
 metadata:
@@ -98,6 +98,35 @@ Para cada mudança que você teve de fazer: **bug → mecanismo → conserto**, 
 você **rodou e viu** (exit code, chave presente nos 8 profiles, `schtasks /Query`, pid novo).
 O humano deste time pede evidência verificável, não reafirmação — "deve estar ok" não serve,
 e surpresa em commit alheio é pior que pergunta.
+
+## Mudança que nasce aqui: o que é gerado não se edita à mão
+
+Quando a mudança não veio de `git pull` e sim de você (skill nova, bot novo, toolset,
+deny), **o arquivo que parece ser o certo geralmente é um artefato gerado**. Tudo em
+`bots/<bot>/` (`config.yaml`, `extra-skills.txt`, `SOUL.md`) e `kiro-agents/hermes-<bot>.json`
+sai de `scripts/gen_bots.py`. Editar o gerado funciona até a próxima regeneração e depois
+desaparece sem erro — o mesmo sumiço silencioso da skill que fica só no profile.
+
+**Antes de editar qualquer arquivo do repo da plataforma, procure o nome dele em
+`scripts/`.** Achou quem o escreve → mexa na fonte e regere.
+
+Para **uma skill chegar aos bots**, o caminho inteiro é:
+
+1. Arquivo da skill em `shared-skills/<nome>/` (vai para **todos** os bots, sem registro) ou
+   `extra-skills/<nome>/` (vai só para quem a **lista**).
+2. Se foi `extra-skills/`, acrescente o nome à lista `extra_skills` do bot em
+   `scripts/gen_bots.py`. **Sem esse registro a skill pode estar commitada e no push e ainda
+   assim não carregar para bot nenhum**: o instalador copia `extra-skills/` lendo
+   `bots/<bot>/extra-skills.txt`, que é gerado dessa lista.
+3. Regere e confira o `exit`:
+   ```bash
+   PYTHONPATH="$(cygpath -m "$LOCALAPPDATA/hermes/pylibs")" python scripts/gen_bots.py
+   ```
+   As dependências Python do time moram em `<hermes>/pylibs`, não no site do usuário.
+4. **`git status` tem de mostrar os DOIS gerados** — `bots/<bot>/extra-skills.txt` **e**
+   `kiro-agents/hermes-<bot>.json`. Só um deles mexendo significa que a skill foi para a
+   árvore errada, ou que você editou o gerado em vez da fonte.
+5. Aí sim rode o instalador e verifique o artefato no profile (passos 3 e 4).
 
 ## Armadilhas do instalador no host Windows
 

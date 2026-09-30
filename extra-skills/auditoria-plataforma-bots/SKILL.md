@@ -1,7 +1,7 @@
 ---
 name: auditoria-plataforma-bots
 description: Auditar a plataforma de bots — diagrama vs o disco.
-version: 1.2.0
+version: 1.3.0
 author: Hermes Orquestrador
 metadata:
   hermes:
@@ -80,7 +80,10 @@ na próxima instalação.** Não é opcional e não é tarefa do humano lembrar;
 mesmo turno em que você patcheia.
 
 1. Ache o lado do repo: a skill mora em `shared-skills/<nome>/` (todos os bots) ou
-   `extra-skills/<nome>/` (só quem lista em `bots/<bot>/extra-skills.txt`).
+   `extra-skills/<nome>/` (só quem a lista). Skill **nova** em `extra-skills/` precisa ainda
+   ser registrada na fonte que gera `bots/<bot>/extra-skills.txt` — senão fica commitada sem
+   carregar para ninguém. Procedimento completo em `instalar-plataforma-bots`, seção sobre o
+   que é gerado.
 2. Copie **normalizando para LF**: arquivo escrito no profile sai com CRLF e o
    `.gitattributes` do repo força `eol=lf` — CRLF ali quebra os scripts do próprio repo.
    `tr -d '\r' < "$PROFILE/<nome>/SKILL.md" > "extra-skills/<nome>/SKILL.md"`
