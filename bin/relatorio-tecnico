@@ -128,7 +128,29 @@ o que mexeu importa:
   entender que ele nao existe mais. Para o repo sem commit, diga "sem mudanca no
   periodo" e mantenha ele no diagrama e na secao de arquitetura.
 
-1) DIAGRAMA, por repositorio (TODOS), em docs/arquitetura/<repo>.drawio
+1) EXPLICACAO DA ARQUITETURA — documento vivo, em docs/arquitetura/arquitetura.md
+   Este e o texto que ensina o sistema a quem NAO o conhece. Nao e o diff do dia:
+   sobrevive entre rodadas e so muda quando a arquitetura muda.
+   - nao existe -> escreva do zero, a partir do grafo (get_architecture), da arvore e
+     do codigo. Nunca de suposicao.
+   - existe -> leia, e mexa SO no que a mudanca de hoje afetou. Nao reescreva o que
+     continua verdade: o valor dele vem de acumular, nao de nascer de novo todo dia.
+   O que precisa responder, em prosa, sem jargao desnecessario:
+     - Para que serve este sistema, em duas frases.
+     - Quais sao as pecas e de que cada uma e responsavel (uma linha por peca).
+     - O caminho de uma requisicao de ponta a ponta: onde entra, por onde passa, onde
+       para. Conte como historia, nao como lista de setas.
+     - Onde o dado mora e quem escreve nele.
+     - O que depende de fora (API, fila, servico de terceiro) e o que quebra se aquilo
+       cair.
+     - As partes fragis: o que e dificil de mudar, o que tem dono unico, o que ja deu
+       problema.
+     - Por que esta assim, quando houver decisao registrada. "Nao sei por que" e uma
+       resposta honesta e util.
+   Marque o que voce inferiu do codigo e o que esta documentado — sao coisas
+   diferentes e o leitor precisa saber qual e qual.
+
+2) DIAGRAMA, por repositorio (TODOS), em docs/arquitetura/<repo>.drawio
    - nao existe -> crie a partir do grafo e da arvore, nunca de suposicao
    - existe -> compare com o codigo de hoje (detect_changes/compare_graphs). Sem
      mudanca na arquitetura, NAO toque no arquivo. Com mudanca, atualize so o que
@@ -136,10 +158,14 @@ o que mexeu importa:
    - nao consegue preservar o trabalho manual: grave <repo>.proposto.drawio ao lado,
      nunca por cima
 
-2) HTML, um so, em docs/arquitetura/relatorio-{data}.html, pela skill archify.
+3) HTML, um so, em docs/arquitetura/relatorio-{data}.html, pela skill archify.
    Abre sem internet. Segure o tamanho: e relatorio, nao museu. Secao sem conteudo
    vira "- nada no periodo", nunca some -- numero que pula parece texto truncado.
-     1 Resumo executivo tecnico  2 Atividades  3 Codigo  4 Arquitetura
+     0 Como funciona — a explicacao inteira do arquitetura.md, no topo e por extenso.
+       E a primeira coisa que o leitor ve: sem ela o relatorio so faz sentido para
+       quem ja conhece o sistema.
+     1 Resumo executivo tecnico  2 Atividades  3 Codigo
+     4 O que mudou na arquitetura hoje (delta do dia, nao a explicacao)
      5 Diagrama (criado/atualizado/sem mudanca, com caminho)  6 Testes
      7 Decisoes tecnicas  8 Divergencias (evidencia, impacto, o que investigar)
      9 Riscos e bloqueios  10 Pendencias
@@ -148,7 +174,7 @@ o que mexeu importa:
      12 Proximos passos, que voce NAO executa
      13 Arquivos que eu escrevi nesta rodada, com caminho
 
-3) RESPONDA a mensagem curta abaixo e NADA MAIS. Quem envia e o script que te
+4) RESPONDA a mensagem curta abaixo e NADA MAIS. Quem envia e o script que te
    chamou -- voce nao precisa rodar `hermes send`, e nao deve. Sua resposta INTEIRA
    e a mensagem. Sem preambulo, sem "aqui esta", sem repetir as 13 secoes.
 
