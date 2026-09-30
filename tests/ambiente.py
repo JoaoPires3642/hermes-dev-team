@@ -103,7 +103,22 @@ class Ambiente:
             "HERMES_DEV_TEAM": str(REPO),
             "FAKE_DIR": str(self.fake),
             "PYTHONIOENCODING": "utf-8",
+            # sem espera entre tentativas de aviso: a suite nao testa a rede,
+            # e o backoff de 3s/6s dominava o tempo total da rodada
+            "HERMES_ESPERA_AVISO": "0",
         }
+        # O env é montado do zero para isolar, mas no Windows um punhado de variáveis
+        # não é "ambiente do usuário", é infraestrutura do próprio Python:
+        # APPDATA é onde mora o site-packages do usuário (é lá que o pip instala sem
+        # admin), e sem ela `import yaml` falha mesmo com o PyYAML instalado — 42 dos
+        # 48 testes quebravam assim, apontando para uma dependência que existia.
+        # SystemRoot/COMSPEC/PATHEXT/TEMP são exigidas por socket, subprocess e tempfile.
+        # LOCALAPPDATA fica DE FORA de propósito: é onde vive o Hermes de verdade, e
+        # repassá-la abriria caminho para um teste enxergar a instalação real.
+        for nome in ("APPDATA", "SystemRoot", "SYSTEMROOT", "windir", "COMSPEC",
+                     "PATHEXT", "TEMP", "TMP", "PROCESSOR_ARCHITECTURE"):
+            if nome in os.environ:
+                self.env.setdefault(nome, os.environ[nome])
 
     def limpar(self):
         shutil.rmtree(self.raiz, ignore_errors=True)
@@ -139,8 +154,13 @@ class Ambiente:
     # ------------------------------------------------------------ execução
     def rodar(self, script, *args, entrada=None, extra_env=None):
         env = {**self.env, **(extra_env or {})}
+        # encoding explícito: `text=True` sozinho decodifica com o codec padrão do
+        # console, que no Windows é cp1252 — e a primeira saída acentuada derruba a
+        # thread leitora do subprocess com UnicodeDecodeError, não o teste. O filho já
+        # escreve UTF-8 por PYTHONIOENCODING; o pai precisa ler igual.
         return subprocess.run([sys.executable, str(self.bin / script), *args], env=env, input=entrada,
-                              capture_output=True, text=True, timeout=120)
+                              capture_output=True, text=True, timeout=120,
+                              encoding="utf-8", errors="replace")
 
     def dispatch(self, *args, **kw):
         return self.rodar("call-dispatch", *args, **kw)

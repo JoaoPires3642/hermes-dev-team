@@ -169,6 +169,9 @@ def conferir_via(via):
     return via
 
 
+ESPERA_AVISO = float(os.environ.get("HERMES_ESPERA_AVISO", "3"))
+
+
 def avisar(texto, tentativas=3):
     """Telegram às vezes dá timeout num envio e passa no seguinte (visto: CALL-6 perdida
     num "Timed out" isolado). Sem nova tentativa, a pergunta sumia em silêncio."""
@@ -183,7 +186,11 @@ def avisar(texto, tentativas=3):
                 return True
         except subprocess.TimeoutExpired:
             pass
-        time.sleep(3 * (i + 1))
+        # Dorme entre tentativas porque reenviar na hora bate na mesma rede caída.
+        # Sai por env para a suíte poder zerar: com 3s/6s por aviso, os testes que
+        # exercitam o reenvio passavam a maior parte dos 6 minutos dormindo.
+        if i + 1 < tentativas:
+            time.sleep(ESPERA_AVISO * (i + 1))
     return False
 
 
@@ -631,9 +638,10 @@ def cmd_doctor(a):
             avisos += 1
             print(f"⚠ {texto}")
 
-    def rodar_ok(cmd, timeout=30):
+    def rodar_ok(cmd, timeout=30, ambiente=None):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                               env=ambiente, encoding="utf-8", errors="replace")
             return r.returncode == 0, (r.stdout + r.stderr).strip()
         except (OSError, subprocess.SubprocessError) as e:
             return False, str(e)
@@ -667,10 +675,28 @@ def cmd_doctor(a):
         if not achado:
             linha(False, f"{nome} não está no PATH")
             continue
-        py = Path(achado).read_text(encoding="utf-8", errors="replace").splitlines()[0][2:].split()
-        if py and py[0].endswith("env"):
-            py = py[1:]
-        ok, _ = rodar_ok(py + ["-c", "import yaml"]) if py and not achado.endswith(".cmd") else (True, "")
+        texto = Path(achado).read_text(encoding="utf-8", errors="replace").splitlines()
+        if achado.lower().endswith(".cmd"):
+            # Wrapper do Windows, não script com shebang. Antes isto caía no ramo de
+            # baixo: `shutil.which` devolve ".CMD" em MAIÚSCULO, o `endswith(".cmd")`
+            # não pegava, e a primeira linha "@echo off" virava o interpretador
+            # "cho off" — que nunca tem PyYAML. Quatro alarmes falsos por instalação,
+            # com os wrappers funcionando.
+            # Aqui a checagem é de verdade: roda o python que o .cmd invoca, com o
+            # PYTHONPATH que ele mesmo define (é onde o pip instala sem admin).
+            exe, ambiente = None, dict(os.environ)
+            for l in texto:
+                if l.lower().startswith('set "pythonpath='):
+                    ambiente["PYTHONPATH"] = l.split("=", 1)[1].rstrip('"').replace(
+                        "%PYTHONPATH%", ambiente.get("PYTHONPATH", ""))
+                elif l.startswith('"'):
+                    exe = l.split('"')[1]
+            ok, _ = rodar_ok([exe, "-c", "import yaml"], ambiente=ambiente) if exe else (True, "")
+        else:
+            py = texto[0][2:].split() if texto else []
+            if py and py[0].endswith("env"):
+                py = py[1:]
+            ok, _ = rodar_ok(py + ["-c", "import yaml"]) if py else (True, "")
         linha(ok, f"{nome}: Python com PyYAML" if ok else
               f"{nome}: o Python de {achado} não tem PyYAML (rode o install.sh de novo)")
     linha(bool(shutil.which("kiro-cli")), "kiro-cli instalado", grave=False,

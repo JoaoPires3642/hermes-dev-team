@@ -32,6 +32,14 @@ CBM_WIN="$LOCALAPPDATA/Programs/codebase-memory-mcp/codebase-memory-mcp.exe"
 KIRO_WIN="${KIRO_WIN//\\//}"
 CBM_WIN="${CBM_WIN//\\//}"
 
+# Onde o pip instala sem admin. O Python do Windows so acha esse site-packages se
+# APPDATA existir no ambiente -- e o Agendador de Tarefas roda sem ela. Resultado:
+# `import yaml` morria no job das calls de 15 em 15 min, com o pacote instalado.
+# Cravar o caminho no PYTHONPATH do wrapper resolve em qualquer ambiente; se depois
+# alguem instalar o PyYAML no site do sistema, isto so fica redundante.
+PYSITE_WIN="$(python -c 'import site,sys; sys.stdout.write(site.getusersitepackages())' 2>/dev/null || true)"
+PYSITE_WIN="${PYSITE_WIN//\\//}"
+
 # grava/atualiza KEY=VAL sem apagar o resto do arquivo. Reinstalar NÃO pode derrubar o
 # que o usuário configurou depois (token do gateway, etc.) — o README promete que
 # memórias e sessões sobrevivem, e o .env entra nessa promessa.
@@ -73,7 +81,11 @@ criar_wrapper() {
   local f=$1 posix=$2 win=$3
   printf '#!/usr/bin/env bash\nexec %s "%s" "$@"\n' "$posix" "$REPO/bin/$f" >"$BIN_DIR/$f"
   chmod +x "$BIN_DIR/$f"
-  printf '@echo off%s\n"%s" "%s" %%*%s\n' "$CR" "$win" "$REPO_WIN\\bin\\$f" "$CR" >"$BIN_DIR/$f.cmd"
+  # Em tres etapas, nao num printf so: `$(...)` come a quebra de linha final e a
+  # linha do PYTHONPATH acabava grudada na do python, gerando um .cmd invalido.
+  printf '@echo off%s\n' "$CR" >"$BIN_DIR/$f.cmd"
+  [[ -n "$PYSITE_WIN" ]] && printf 'set "PYTHONPATH=%s;%%PYTHONPATH%%"%s\n' "$PYSITE_WIN" "$CR" >>"$BIN_DIR/$f.cmd"
+  printf '"%s" "%s" %%*%s\n' "$win" "$REPO_WIN\\bin\\$f" "$CR" >>"$BIN_DIR/$f.cmd"
 }
 
 for f in openwhispr-notes git-bot hermes-task bot-chat-reset hermes-delegar call-dispatch resumo-do-dia; do
@@ -180,11 +192,14 @@ done
 # `-c "Bot Chat" --create-if-missing` e idempotente: reaproveita a que existir.
 say "Bot Chat de cada bot (portao do message_agent)"
 for b in "${BOTS[@]}"; do
+  # `python`, nao `python3`: no Git Bash deste instalador so existe `python`, e o
+  # `python3` ausente faria esta checagem falhar sempre — avisando que a Bot Chat
+  # nao foi criada justamente quando ela foi.
   # O código de saída do ping não serve: com --max-turns 1, o bot que tenta usar uma
   # ferramenta é cortado e sai 1 mesmo com a sessão criada. Confere no state.db.
   "$HERMES" -p "$b" chat -c "Bot Chat" --create-if-missing \
     -q "ping de instalacao: responda so 'ok', sem ferramentas" --oneshot -Q --max-turns 1 >/dev/null 2>&1 || true
-  if python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); sys.exit(0 if c.execute("select 1 from sessions where title=?",("Bot Chat",)).fetchone() else 1)' \
+  if python -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); sys.exit(0 if c.execute("select 1 from sessions where title=?",("Bot Chat",)).fetchone() else 1)' \
       "$HERMES_ROOT/profiles/$b/state.db" 2>/dev/null; then
     say "  @$b: Bot Chat pronto"
   else
@@ -199,8 +214,11 @@ done
 # Git Bash.
 say "Agendando o job das calls (Agendador de Tarefas, a cada 15 min)"
 BIN_WIN="$(cygpath -w "$BIN_DIR" 2>/dev/null || echo "$BIN_DIR")"
-printf '@echo off%s\npython "%s" novas --ao-criar "python \\"%s\\" varrer"%s\n' "$CR" \
-  "$REPO_WIN\\bin\\openwhispr-notes" "$REPO_WIN\\bin\\call-dispatch" "$CR" >"$BIN_DIR/hermes-calls.cmd"
+printf '@echo off%s\n' "$CR" >"$BIN_DIR/hermes-calls.cmd"
+# mesma armadilha do APPDATA: a tarefa agendada roda com ambiente enxuto
+[[ -n "$PYSITE_WIN" ]] && printf 'set "PYTHONPATH=%s;%%PYTHONPATH%%"%s\n' "$PYSITE_WIN" "$CR" >>"$BIN_DIR/hermes-calls.cmd"
+printf 'python "%s" novas --ao-criar "python \\"%s\\" varrer"%s\n' \
+  "$REPO_WIN\\bin\\openwhispr-notes" "$REPO_WIN\\bin\\call-dispatch" "$CR" >>"$BIN_DIR/hermes-calls.cmd"
 # de novo sempre: reenvia pergunta que não chegou (timeout do Telegram)
 printf 'python "%s" varrer%s\n' "$REPO_WIN\\bin\\call-dispatch" "$CR" >>"$BIN_DIR/hermes-calls.cmd"
 schtasks //Create //F //SC MINUTE //MO 15 //TN "hermes-dev-team - openwhispr-notes" //TR "\"$BIN_WIN\\hermes-calls.cmd\"" >/dev/null 2>&1 \
