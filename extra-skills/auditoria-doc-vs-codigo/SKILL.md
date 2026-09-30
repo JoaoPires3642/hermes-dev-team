@@ -1,7 +1,7 @@
 ---
 name: auditoria-doc-vs-codigo
 description: Aplique ao confrontar documento de QA, critérios de aceite ou spec com o código. Audiência - @arquiteto.
-version: 1.1.0
+version: 1.2.0
 author: Hermes Arquiteto
 metadata:
   hermes:
@@ -38,6 +38,36 @@ escrever o próprio relatório.
 6. **Estado do repo:** `git log --oneline -15`, `git status -sb`; confira se o upstream da
    branch está `[gone]` ou adiantado/atrasado antes de citar commits como entregues.
 7. **Escrever o relatório** e listar todo arquivo escrito (ou "nenhum").
+
+## Acompanhamento depois da auditoria (status do projeto, só leitura)
+
+Depois que as issues viram trabalho de dev, o humano pergunta "como estamos". Leia nesta ordem e
+cruze as fontes — elas divergem:
+
+1. **Tuple:** `tuple-api "$P" board` (totais por status e `atencao`); para issues suas,
+   `issues.list` filtrando `assigneeId` e `issues.getByKey` para a descrição.
+2. **Manifest:** `hermes-task show "$P" <KEY>` → `estado`, `allowed_paths`, gates.
+   Passe `P="$(pwd -W)"` (caminho `C:/...`): com `$PWD` do MSYS o `hermes-task` monta
+   `C:\c\Users\...` e responde "não é pasta de projeto".
+3. **Audit:** `tail .hermes/audit.jsonl` filtrando `"tipo": "transicao"` da KEY — quem moveu,
+   com qual evidência (`build=na` e waiver de humano aparecem aqui).
+4. **Git:** `git log --oneline` por repo e `--stat` dos commits novos; relacione o prefixo do
+   commit (QA2-0X) à issue. Sem ler o diff, diga "li só o --stat".
+
+Regras deste acompanhamento:
+- **`hermes-task move` não atualiza o Tuple:** ele só imprime `TUPLE: mova para <status>`. Manifest e
+  Tuple podem estar em estados diferentes; reporte os dois.
+- **`ok` do @qa é afirmação dele**, não sua; `na`/waiver em build ou lint significa que o build
+  **não foi verificado** — destaque como risco, não como pendência menor.
+- **Pedido de dev ("pega as issues", "começa o desenvolvimento", "libera aí"):** recuse
+  implementar mesmo com o humano liberando — o limite é de papel, não só trava. Liste as issues
+  do humano em leitura, aponte arquivos/insumos por issue e ofereça handoff ou revisão de diff
+  depois dos commits.
+- **Pedido de mover issue sem dizer qual/para quê:** pergunte issue e status (o workflow não
+  deixa pular coluna) e não mova nada até ter as duas respostas. Se o humano responder só
+  "sim", não é resposta.
+- **Não atribua a bot o que veio de arquivo de memória:** "o @po propôs X" lido em `memory/` é
+  referência, não ação desta sessão — diga isso se perguntarem por que alguém foi acionado.
 
 ## Formato do relatório (Telegram)
 

@@ -225,7 +225,11 @@ def arquivos_da_tarefa(root, m):
         if not (repo / ".git").exists():
             continue
         g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
-        grep = f"--grep={m['task_id']}"
+        # `Refs: <KEY>` e não a KEY solta: o corpo de um commit costuma citar outra
+        # task ("usa o recálculo de SELL-78"), e o grep frouxo atribuía os arquivos
+        # daquele commit a esta tarefa — o DoD reprovava por "fora de allowed_paths"
+        # arquivos que eram de outra issue. É o `Refs:` que declara a dona do commit.
+        grep = f"--grep=Refs: {m['task_id']}"
         tocados = {l for l in g("log", "-n", "500", grep, "--name-only", "--format=").splitlines() if l.strip()}
         shas = g("log", "-n", "500", grep, "--format=%H").split()
         if tocados and shas:
