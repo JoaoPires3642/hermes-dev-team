@@ -21,6 +21,18 @@ ALL_BOTS=(orquestrador po pm arquiteto techlead dev-front dev-back qa)
 BOTS=("${@:-${ALL_BOTS[@]}}")
 
 HERMES_ROOT="${HERMES_HOME:-$LOCALAPPDATA/hermes}"
+# Se o instalador roda DENTRO de uma sessao de bot, o Hermes exporta
+# HERMES_HOME=<root>/profiles/<bot> -- e o script inteiro passaria a escrever dentro do
+# profile de um bot: .env do time em <profile>/.env, e o teste do profile procurando
+# <profile>/profiles/<bot>. Aconteceu: o @orquestrador rodou isto e o install morreu em
+# "profile orquestrador nao apareceu em .../profiles/orquestrador/profiles/orquestrador".
+# A raiz do Hermes e a pasta ACIMA de profiles/.
+case "$HERMES_ROOT" in
+  */profiles/*) HERMES_ROOT="${HERMES_ROOT%/profiles/*}" ;;
+  *\\profiles\\*) HERMES_ROOT="${HERMES_ROOT%\\profiles\\*}" ;;
+esac
+# e os `hermes` filhos tambem: senao `profile install` herda o HERMES_HOME do bot.
+export HERMES_HOME="$HERMES_ROOT"
 HERMES="${HERMES_CMD:-$LOCALAPPDATA/hermes/bin/hermes.cmd}"
 KIRO_EXE="$LOCALAPPDATA/Kiro-Cli/kiro-cli.exe"
 # Barras normais de propósito: o Windows aceita, e contrabarra em .env é armadilha.
@@ -89,6 +101,8 @@ CR=$'\r'
 # aceita barra normal sem escape nenhum -- ao contrario da contrabarra, que o
 # bash come dentro de aspas.
 REPO_SLASH="${REPO_WIN//\\//}"
+# $HOME em forma nativa: mesma fronteira MSYS -> python do Windows.
+HOME_SLASH="$(cygpath -m "$HOME" 2>/dev/null || echo "$HOME")"
 
 criar_wrapper() {
   local f=$1 posix=$2 win=$3
@@ -128,15 +142,24 @@ for s in "$REPO"/extra-skills/*/; do
   cp "$s/SKILL.md" "$HOME/.kiro/hermes-dev-team/$(basename "$s").md"
 done
 
-# onde está o repo: o call-dispatch copia templates/projeto daqui para cliente novo
-set_env "$HERMES_ROOT/.env" HERMES_DEV_TEAM "$REPO_WIN"
+# onde está o repo: o call-dispatch copia templates/projeto daqui para cliente novo.
+# REPO_SLASH, nao REPO_WIN: o set_env passa o valor por `awk -v`, que come os escapes
+# (\U, \j, \D, \h). Com contrabarra o .env guardava "C:Usersjoao.piresDocuments..." e o
+# call-dispatch nao achava templates/projeto para cliente novo. Mesma armadilha que o
+# comentario do KIRO_WIN la em cima descreve -- e que esta linha repetia.
+set_env "$HERMES_ROOT/.env" HERMES_DEV_TEAM "$REPO_SLASH"
 
 for b in "${BOTS[@]}"; do
   src="$REPO/bots/$b"
   [[ -d "$src" ]] || die "bot desconhecido: $b"
   say "Bot @$b"
 
-  "$HERMES" profile install "$src" --force -y >/dev/null
+  # Caminho NATIVO (C:/...), nao MSYS (/c/...): o `hermes profile install` e um programa
+  # Windows e recusa o path MSYS com "Cannot resolve distribution source" -- e o script
+  # tem `set -e`, entao o instalador morria calado no primeiro bot, DEPOIS de dizer
+  # "Bot @orquestrador". Era o que travava as mudancas do repo em disco: tudo parecia
+  # ok na tela e nenhum config.yaml novo chegava no profile.
+  "$HERMES" profile install "$REPO_SLASH/bots/$b" --force -y >/dev/null
   prof="$HERMES_ROOT/profiles/$b"
   [[ -d "$prof" ]] || die "profile $b não apareceu em $prof"
 
@@ -207,8 +230,10 @@ for b in "${BOTS[@]}"; do
     sed -i '/^HERMES_KIRO_ACP_/d' "$prof/.env" 2>/dev/null || true
   fi
 
-  # agente Kiro, com o caminho absoluto do codebase-memory-mcp
-  python - "$REPO/kiro-agents/hermes-$b.json" "$HOME/.kiro/agents/hermes-$b.json" "$HOME" "$CBM_WIN" <<'PY'
+  # agente Kiro, com o caminho absoluto do codebase-memory-mcp.
+  # Paths NATIVOS: este `python` e o do Windows e nao entende /c/Users/... -- passar o
+  # path MSYS aqui derrubava o install com FileNotFoundError no primeiro bot.
+  python - "$REPO_SLASH/kiro-agents/hermes-$b.json" "$HOME_SLASH/.kiro/agents/hermes-$b.json" "$HOME_SLASH" "$CBM_WIN" <<'PY'
 import json, sys
 src, dst, home, cbm = sys.argv[1:5]
 a = json.loads(open(src, encoding="utf-8").read().replace("__HOME__", home.replace("\\", "/")))
@@ -272,7 +297,7 @@ printf 'python "%s" novas --ao-criar "python \\"%s\\" varrer"%s\n' \
   "$REPO_WIN\\bin\\openwhispr-notes" "$REPO_WIN\\bin\\call-dispatch" "$CR" >>"$BIN_DIR/hermes-calls.cmd"
 # de novo sempre: reenvia pergunta que não chegou (timeout do Telegram)
 printf 'python "%s" varrer%s\n' "$REPO_WIN\\bin\\call-dispatch" "$CR" >>"$BIN_DIR/hermes-calls.cmd"
-schtasks //Create //F //SC MINUTE //MO 15 //TN "hermes-dev-team - openwhispr-notes" //TR "\"$BIN_WIN\\hermes-calls.cmd\"" >/dev/null 2>&1 \
+MSYS_NO_PATHCONV=1 schtasks /Create /F /SC MINUTE /MO 15 /TN "hermes-dev-team - openwhispr-notes" /TR "\"$BIN_WIN\\hermes-calls.cmd\"" >/dev/null 2>&1 \
   || warn "não consegui agendar: rode no cmd -> schtasks /Create /F /SC MINUTE /MO 15 /TN \"hermes-dev-team - openwhispr-notes\" /TR \"$BIN_WIN\\hermes-calls.cmd\""
 
 # Resumo do dia às 17h (dias úteis), pelo bot do @pm. HERMES_DAILY_HORA muda o horário.
@@ -285,8 +310,8 @@ printf '@echo off%s
 ' "$PYSITE_WIN" "$CR" >>"$BIN_DIR/hermes-daily.cmd"
 printf 'python "%s"%s
 ' "$REPO_WIN\bin\resumo-do-dia" "$CR" >>"$BIN_DIR/hermes-daily.cmd"
-schtasks //Create //F //SC WEEKLY //D MON,TUE,WED,THU,FRI //ST "${HERMES_DAILY_HORA:-17:00}" \
-  //TN "hermes-dev-team - resumo-do-dia" //TR "\"$BIN_WIN\\hermes-daily.cmd\"" >/dev/null 2>&1 \
+MSYS_NO_PATHCONV=1 schtasks /Create /F /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST "${HERMES_DAILY_HORA:-17:00}" \
+  /TN "hermes-dev-team - resumo-do-dia" /TR "\"$BIN_WIN\\hermes-daily.cmd\"" >/dev/null 2>&1 \
   || warn "não consegui agendar o resumo do dia (schtasks)"
 
 say "Pronto: ${BOTS[*]}"
