@@ -186,7 +186,7 @@ def arquivos_da_tarefa(root, m):
         repo = root / r["path"]
         if not (repo / ".git").exists():
             continue
-        g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout
+        g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
         grep = f"--grep={m['task_id']}"
         tocados = {l for l in g("log", "-n", "500", grep, "--name-only", "--format=").splitlines() if l.strip()}
         shas = g("log", "-n", "500", grep, "--format=%H").split()

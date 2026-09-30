@@ -108,7 +108,7 @@ def repos(proj):
 
 def commits(repo, desde):
     r = subprocess.run(["git", "-C", str(repo), "log", "--all", "--no-merges", f"--since={desde.isoformat()}",
-                        "-n", "60", "--format=%h\x1f%an\x1f%s"], capture_output=True, text=True)
+                        "-n", "60", "--format=%h\x1f%an\x1f%s"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         return []
     return [dict(zip(("hash", "autor", "msg"), l.split("\x1f"))) for l in r.stdout.splitlines() if l]
@@ -245,7 +245,7 @@ def escrever(proj, fatos_txt, data, dia_iso, hermes):
     try:
         r = subprocess.run([hermes, "-p", PERFIL, "chat", "--in", str(proj), "--continue", f"daily-{dia_iso}",
                             "--create-if-missing", "--query-file", str(prompt), "--oneshot", "-Q"],
-                           capture_output=True, text=True, timeout=600, cwd=proj)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, cwd=proj)
     except subprocess.TimeoutExpired:
         return None
     texto = (r.stdout or "").strip()
@@ -289,7 +289,7 @@ def enviar(texto, hermes, perfil):
     for i in range(3):   # o Telegram às vezes dá timeout num envio e passa no seguinte
         try:
             r = subprocess.run([hermes, "-p", perfil, "send", "--to", "telegram", "-q", "--file", "-"],
-                               input=texto, text=True, capture_output=True, timeout=60)
+                               input=texto, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60)
             if r.returncode == 0:
                 return True
         except subprocess.TimeoutExpired:
