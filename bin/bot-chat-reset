@@ -4,6 +4,8 @@
     bot-chat-reset <bot> [<bot> ...]     apaga a Bot Chat desses bots
     bot-chat-reset --todos               apaga a de todos os bots do install
     bot-chat-reset --listar              so mostra o peso de cada caixa
+    bot-chat-reset ... --conversas       alcanca tambem as conversas de PLATAFORMA
+                                         (DM e grupo do Telegram)
     bot-chat-reset ... --sim             nao pergunta (para script)
 
 Por que isto existe
@@ -18,7 +20,14 @@ Apagar a sessao e seguro: a proxima mensagem a recria vazia (`--create-if-missin
 e o registro do trabalho nunca esteve nela -- esta no handoff e no comentario da
 issue do TUPLE (skill `fluxo-time`). O que se perde e so o acumulado.
 
-Nao apaga nada alem da Bot Chat. Sessao com outro titulo nao e tocada.
+A conversa de PLATAFORMA (`--conversas`) e eterna pelo mesmo motivo: a chave e estavel
+por chat, entao toda mensagem daquele grupo ou DM cai sempre na mesma sessao. Ela
+acumula, nao tem pasta de trabalho, e o assunto de ontem disputa espaco com o pedido de
+hoje. Aconteceu: o @orquestrador foi procurar projeto em ~/Documents tendo
+$HERMES_PROJETOS na mao, com 32 mensagens de outro assunto atras.
+
+Nao apaga nada alem disso. Sessao de trabalho, com outro titulo e sem chave de
+plataforma, nao e tocada.
 """
 
 from __future__ import annotations
@@ -66,26 +75,43 @@ def conectar(db: Path, escrita: bool) -> sqlite3.Connection:
     return c
 
 
-def caixa(raiz: Path, bot: str):
-    """(id, mensagens, chamadas, tokens_lidos, segundos_desde_a_ultima_atividade)."""
+def _idade(visto):
+    try:
+        return time.time() - float(visto) if visto else None
+    except (TypeError, ValueError):
+        return None
+
+
+CAMPOS = "id, message_count, api_call_count, cache_read_tokens, last_activity_at"
+
+
+def caixas(raiz: Path, bot: str, conversas: bool = False) -> list[tuple]:
+    """[(rotulo, id, msgs, chamadas, tokens, idade)] das caixas eternas deste bot.
+
+    Sempre a Bot Chat. Com `conversas`, tambem as de plataforma (DM e grupo), que sao
+    eternas do mesmo jeito -- a chave e estavel por chat -- e por isso envelhecem igual.
+    """
     db = raiz / "profiles" / bot / "state.db"
     if not db.is_file():
-        return None
+        return []
     con = conectar(db, escrita=False)
     try:
+        achados = []
         linha = con.execute(
-            "select id, message_count, api_call_count, cache_read_tokens, last_activity_at "
-            "from sessions where trim(title)=?", (TITULO,)).fetchone()
+            f"select {CAMPOS} from sessions where trim(title)=?", (TITULO,)).fetchone()
+        if linha:
+            achados.append(("Bot Chat",) + tuple(linha[:4]) + (_idade(linha[4]),))
+        if conversas:
+            for r in con.execute(
+                    f"select session_key, {CAMPOS} from sessions where session_key like ? "
+                    "order by last_activity_at desc", (f"agent:{bot}:%",)):
+                # agent:orquestrador:telegram:group:-5418161150:5057 -> telegram:group:-5418161150
+                partes = (r[0] or "").split(":")
+                rotulo = ":".join(partes[2:5]) if len(partes) >= 5 else (r[0] or "?")
+                achados.append((rotulo,) + tuple(r[1:5]) + (_idade(r[5]),))
+        return achados
     finally:
         con.close()
-    if linha is None:
-        return None
-    sid, m, a, t, visto = linha
-    try:
-        idade = time.time() - float(visto) if visto else None
-    except (TypeError, ValueError):
-        idade = None
-    return (sid, m, a, t, idade)
 
 
 def viva(idade) -> bool:
@@ -128,6 +154,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--todos", action="store_true", help="todos os bots do install")
     ap.add_argument("--listar", action="store_true", help="so mostra o peso de cada caixa")
     ap.add_argument("--sim", action="store_true", help="nao pergunta")
+    ap.add_argument("--conversas", action="store_true",
+                    help="inclui as conversas de plataforma (DM e grupo do Telegram)")
     ap.add_argument("--forcar", action="store_true",
                     help="apaga mesmo se a sessao estiver aberta (o gateway vai reescrever)")
     a = ap.parse_args(argv)
@@ -140,16 +168,16 @@ def main(argv: list[str]) -> int:
     todos = bots(raiz)
 
     if a.listar or (not a.bots and not a.todos):
-        print("%-16s %-24s %8s %8s %12s  %s"
-              % ("bot", "sessao", "msgs", "calls", "tok lidos", "estado"))
+        print("%-14s %-26s %-24s %6s %6s %11s  %s"
+              % ("bot", "caixa", "sessao", "msgs", "calls", "tok lidos", "estado"))
         for b in todos:
-            c = caixa(raiz, b)
-            if c is None:
-                print("%-16s %s" % (b, "(sem Bot Chat)"))
-            else:
-                estado = "ABERTA agora" if viva(c[4]) else "parada"
-                print("%-16s %-24s %8s %8s %12s  %s"
-                      % (b, c[0], c[1], c[2], c[3], estado))
+            achados = caixas(raiz, b, a.conversas)
+            if not achados:
+                print("%-14s %s" % (b, "(sem caixa)"))
+            for rotulo, sid, m, chamadas, tok, idade in achados:
+                print("%-14s %-26s %-24s %6s %6s %11s  %s"
+                      % (b, rotulo, sid, m, chamadas, tok,
+                         "ABERTA agora" if viva(idade) else "parada"))
         if not a.listar:
             print("\nNada apagado. Use: bot-chat-reset <bot> [...] | --todos", file=sys.stderr)
             return USO
@@ -164,18 +192,17 @@ def main(argv: list[str]) -> int:
 
     pendentes, abertas = [], []
     for b in alvos:
-        c = caixa(raiz, b)
-        if c is None:
-            print("@%s: sem Bot Chat, nada a fazer" % b)
-        elif viva(c[4]) and not a.forcar:
-            abertas.append((b, c))
-        else:
-            pendentes.append((b, c))
+        achados = caixas(raiz, b, a.conversas)
+        if not achados:
+            print("@%s: sem caixa, nada a fazer" % b)
+        for c in achados:
+            (abertas if viva(c[5]) and not a.forcar else pendentes).append((b, c))
 
     if abertas:
         print("\nNAO vou apagar estas: a sessao esta ABERTA agora.", file=sys.stderr)
         for b, c in abertas:
-            print("  @%-14s %s  (ativa ha %.0fs)" % (b, c[0], c[4]), file=sys.stderr)
+            print("  @%-12s %-24s %s  (ativa ha %.0fs)" % (b, c[0], c[1], c[5]),
+                  file=sys.stderr)
         print("\nApagar a linha de uma sessao viva nao a mata: o gateway a mantem em",
               file=sys.stderr)
         print("memoria e reescreve tudo de volta no turno seguinte. Feche o chat do bot",
@@ -186,9 +213,9 @@ def main(argv: list[str]) -> int:
     if not pendentes:
         return ERRO if abertas else OK
 
-    print("\nVai apagar a caixa de entrada de:")
+    print("\nVai apagar:")
     for b, c in pendentes:
-        print("  @%-14s %s  (%s msgs, %s chamadas)" % (b, c[0], c[1], c[2]))
+        print("  @%-12s %-24s %s  (%s msgs, %s chamadas)" % (b, c[0], c[1], c[2], c[3]))
     print("\nA caixa renasce vazia na proxima mensagem. O trabalho nao mora nela:")
     print("esta no handoff e no comentario da issue do TUPLE.")
 
@@ -217,8 +244,8 @@ def main(argv: list[str]) -> int:
     saida = ERRO if abertas else OK   # recusa parcial nao pode sair 0
     for b, c in pendentes:
         try:
-            apagar(raiz, b, c[0])
-            print("@%s: caixa zerada" % b)
+            apagar(raiz, b, c[1])          # c = (rotulo, id, msgs, chamadas, tok, idade)
+            print("@%s: %s zerada" % (b, c[0]))
         except sqlite3.OperationalError as e:
             print("@%s: nao deu - %s. O gateway pode estar com o banco travado; "
                   "pare com `hermes gateway stop` e repita." % (b, e), file=sys.stderr)

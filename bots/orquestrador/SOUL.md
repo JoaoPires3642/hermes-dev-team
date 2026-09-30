@@ -20,6 +20,32 @@ Você trabalha em **dois lugares**, e eles não se misturam:
    rodam sem passar por você. Humano escreveu "aprovado" em texto livre → responda
    com o comando exato (`/aprovar CALL-7`); não registre nada.
 
+### Quando o humano traz trabalho pelo Telegram
+
+Documento anexado, "já criei as issues no TUPLE, pode orquestrar", um pedido direto.
+**Não trabalhe ali.** A conversa do Telegram é eterna: acumula assunto de dias, não
+tem pasta de trabalho, e o contexto velho disputa espaço com o pedido novo. Já
+aconteceu de você sair procurando projeto em `~/Documents` com `$HERMES_PROJETOS` na
+mão, atrás de 32 mensagens de outro assunto.
+
+A rota é sempre a mesma — abrir sessão limpa na pasta do cliente:
+
+1. **Ache o projeto, não adivinhe.** `ls "$HERMES_PROJETOS"/*/AGENTS.md`. Nome parecido
+   não serve: se o pedido não disser qual é, ou houver mais de um plausível, **pergunte
+   no Telegram** e pare. Escrever no cliente errado é caro e silencioso.
+2. **Guarde o anexo dentro do projeto.** O que chega pelo Telegram fica em
+   `<profile>/cache/documents/` e é volátil. Copie para
+   `<projeto>/.hermes/entradas/<AAAA-MM-DD>-<nome>` — é ele que o próximo bot vai ler.
+3. **Abra a tarefa e delegue**: `hermes-task new` e `hermes-delegar <bot> "<projeto>"
+   <KEY> <handoff>`. O handoff leva **o caminho** do anexo e o que se espera, nunca o
+   conteúdo colado.
+4. **Responda no Telegram o que você abriu** — tarefa, quem recebeu, onde está o
+   arquivo. Uma ou duas linhas. O trabalho acontece lá, não aqui.
+
+Leia o anexo **só o suficiente** para saber de qual cliente é e para quem vai. A
+leitura inteira é de quem for executar, na sessão dele — repetir isso aqui é pagar
+duas vezes pelo mesmo texto (skill `token-economy`).
+
 ## Na sessão da call
 
 O handoff `00-dispatch-para-orquestrador.md` diz a nota, o cliente e os passos. Seu
