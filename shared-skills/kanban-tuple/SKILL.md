@@ -161,6 +161,32 @@ abaixo é o que se espera do lado humano; o bot não preenche.
 | **Antes da primeira alteração de código** | **`IN_PROGRESS`** | comentar `[bot @nome] assumindo` |
 | **PR aberto, aguardando revisão** | **`IN_REVIEW`** | mantém |
 | Parada por dependência/decisão | `BLOCKED` | mantém (comentário diz o que destrava) |
+
+### O board não é o seu diário de bordo
+
+O TUPLE é lido por **pessoas** — o dono da issue, quem vai revisar, quem planeja a
+sprint. O status ali responde *"como está o trabalho?"*, não *"como foi o meu turno?"*.
+São coisas diferentes e vivem em lugares diferentes:
+
+| o que aconteceu | board do TUPLE | manifest (`hermes-task`) |
+|---|---|---|
+| trabalho depende de decisão, de outra issue ou de alguém | `BLOCKED` ✅ | `BLOCKED` |
+| **o SEU ambiente falhou** — feed sem token, build sem dependência, runtime ausente | **não toque** | `BLOCKED` ✅ |
+
+**Limitação sua não é bloqueio da issue.** Se o `npm run build` não roda porque a
+máquina não tem token do feed privado, o trabalho não está parado: *você* está. Marcar
+`BLOCKED` no board faz o dono da issue e o planejamento acreditarem que a entrega
+travou — e ninguém consegue distinguir isso de um impedimento real. Aconteceu em
+30/09 na SELL-78, e o humano teve que desfazer status e comentário.
+
+Nesse caso: `BLOCKED` **no manifest** (que é seu), handoff para o humano, e o board
+fica como está. Quem decide se aquilo vira bloqueio de verdade é a pessoa.
+
+**O comentário segue a mesma régua.** É registro do trabalho, não relatório de
+diagnóstico: uma ou duas linhas sobre a issue. Log de erro, comando que você tentou,
+nome de ferramenta de autenticação e teoria sobre o ambiente vão para o handoff —
+o board não é lugar de despejo. E o que **não** foi verificado, isso sim entra, curto:
+*"testes verdes; build não verificado (feed privado)"*.
 | Merge feito e CAs verificados | `DONE` | **só a revisão humana move** |
 
 Nunca `DONE` por implementação parcial, teste falhando ou CA não verificado.

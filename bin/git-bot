@@ -132,6 +132,22 @@ def cmd_preparar(a):
     existe = git(repo, "rev-parse", "--verify", "--quiet", destino, checar=False).returncode == 0
     if existe:
         git(repo, "checkout", destino)
+        # Branch local já existia: o fetch acima só moveu origin/*, não a local. Sem
+        # isto o dev começa a escrever em cima de código velho e só descobre no rebase
+        # do push — tarde, e com conflito que ninguém pediu. Em branch compartilhada
+        # (vários devs e humanos no mesmo ramo) isso é a regra, não o zelo extra.
+        tem_up = git(repo, "rev-parse", "--abbrev-ref", "@{u}", checar=False).returncode == 0
+        if tem_up:
+            if git(repo, "status", "--porcelain").stdout.strip():
+                fim(USO, "árvore suja em '%s' — commite ou guarde antes de preparar "
+                         "(seria preciso rebase para alinhar com o remoto)" % destino)
+            r = git(repo, "pull", "--rebase", checar=False)
+            if r.returncode:
+                conflitos = git(repo, "diff", "--name-only", "--diff-filter=U",
+                                checar=False).stdout.strip()
+                git(repo, "rebase", "--abort", checar=False)
+                fim(BLOCKED, "conflito ao alinhar '%s' com o remoto; rebase abortado, "
+                             "nada foi alterado. Arquivos: %s" % (destino, conflitos or "?"))
     else:
         remota = git(repo, "rev-parse", "--verify", "--quiet",
                      "origin/" + destino, checar=False).returncode == 0
