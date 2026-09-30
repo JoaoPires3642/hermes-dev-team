@@ -1,7 +1,7 @@
 ---
 name: pm-board-cadence
-description: Aplique na rotina diária do @pm. Varre o board do TUPLE, cobra BLOCKED, sinaliza risco de prazo e PROPÕE fechamento — nunca fecha: DONE é o GATE 3, revisão humana. Audiência - @pm.
-version: 2.0.0
+description: Aplique na rotina diaria do @pm. Varre o board do TUPLE, cobra BLOCKED, sinaliza risco e propoe fechamento (nunca fecha DONE).
+version: 2.1.0
 author: Hermes PM
 license: CC0
 metadata:
@@ -64,15 +64,13 @@ Report to user:
 📋 Backlog: N (frentes de trabalho futuras)
 ```
 
-### Step 3: IN_REVIEW parada — PROPOR fechamento, nunca fechar
+### Step 3: IN_REVIEW parada (nunca fechar, proponha)
 
 **Você não move nada para `DONE`.** `DONE` é o GATE 3, a única revisão humana no
 fim do fluxo (skill `fluxo-time`). Uma issue fechada sem revisão fica idêntica a
-uma revisada — o erro não aparece depois, e é por isso que a regra é absoluta.
+uma revisada — o erro não aparece depois.
 
-Uma versão anterior desta skill se autorizava a fechar após 5 dias com evidência.
-Era bem-intencionada e mesmo assim errada: decidir que a evidência basta **é** a
-revisão.
+**Lição**: Versões antigas desta skill autorizavam PM a fechar `IN_REVIEW` após 5 dias com evidência QA. Mas automatizar a decisão "evidência basta" é o que você tenta contornar com GATE 3 (humano aprova, não bot lê comentário). Economizar um clique carrega risco: erro silencioso (revisão não aconteceu, ninguém vê depois). **Nunca feche — proponha ao humano com evidência.**
 
 O que fazer com `IN_REVIEW` parada há mais de 5 dias:
 
@@ -134,3 +132,15 @@ Always cite the issue key and keep the comment thread **on the Tuple board**, no
 ## No scope changes, no repriorization without OK
 
 **Per `fluxo-time`:** PM does NOT alter issue scope, priority, or owner without explicit human OK. If you see an issue that looks wrong (title mismatch, priority low but critical), **comment to confirm, don't move**. Decisions about scope belong to @po + @techlead.
+
+## Pull issues por atribuicao (quando humano quer ver seu board)
+
+Quando perguntarem "que issues tenho?", puxe com `issues.list` e filtre por `assignee.name` do humano:
+
+```bash
+tuple-api "$P" get issues.list '{...}' | python -c "import json, sys; data = json.load(sys.stdin); issues = [i for i in data.get('result', {}).get('data', {}).get('issues', []) if i.get('assignee') and i['assignee'].get('name') == 'NOME']; ..."
+```
+
+Agrupe por status (IN_PROGRESS, IN_REVIEW, TODO, BLOCKED, BACKLOG, DONE) com emojis pra legibilidade.
+
+**Pitfall - assignee pode ser null**: Se nao tiver ninguem atribuido, vem como `null`, nao ausente. Teste com `if i.get('assignee') and i['assignee'].get('name')`.

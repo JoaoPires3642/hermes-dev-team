@@ -108,6 +108,10 @@ BOTS = {
         # o que haiku erra para o lado de afirmar; e roda todo dia, onde opus nao se paga.
         "model": "claude-sonnet-5-5", "provider": "anthropic",
         "desc": "Arquiteto e Auditor Tecnico: compara arquitetura planejada x implementada, audita o diff do dia contra as tarefas e entrega o relatorio tecnico por projeto no Telegram. Somente leitura.",
+        # escrita por ele mesmo, revisada antes de entrar no repo: a linha "o unico
+        # arquivo que escrevo e diagrama" estava estreita demais e faria ele recusar o
+        # proprio relatorio
+        "extra_skills": ["auditoria-doc-vs-codigo"],
         "pet": "pipe-wrench-robot",
         # cronjob: o relatorio e diario. terminal: sem ele nao ha `git log`/`git diff`,
         # que e a evidencia inteira do trabalho dele. file: ler codigo e docs.

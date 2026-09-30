@@ -103,12 +103,19 @@ saem como texto no comentário. `cycles.*` só com escopo `cycles:read`.
   errada e ninguém percebe até alguém olhar o board. Aconteceu de verdade: oito
   issues seguidas criadas como `bug` por omissão, e outras três tiveram que ser
   convertidas depois. **Sempre mande `type` explícito** no `issues.create`.
-- **Você não consegue atribuir dono — mas não porque o campo seja bloqueado.**
-  `issues.update` aceita `assigneeId`; o que falta é o id de alguém: `members.list`
-  responde 403 para API key, não existe `users.list`, e nenhuma issue do board tem
-  dono de onde copiar (100 lidas, 0 atribuídas — verificado em 29/09/2026). Então a
-  issue nasce e permanece **sem dono**, e quem atribui é uma pessoa na interface.
-  `labelIds` idem: label sugerida vai como texto no comentário.
+- **Dono: você LÊ, mas não atribui.** `issues.list` e `issues.getByKeyWithDetails`
+  devolvem `assignee` completo — `{id, name, email}` — quando alguém pegou a issue.
+  Verificado em 30/09/2026. (Esta skill afirmava o contrário até então, porque em
+  29/09 o board inteiro estava sem dono; era observação daquele dia virada regra.)
+  Para atribuir continua faltando o id: `members.list` responde 403 para API key e
+  não existe `users.list` — mas agora dá para copiar o `assignee.id` de uma issue que
+  a pessoa já tenha. **Cuidado**: `assignee` vem como `null` quando ninguém pegou, não
+  ausente — teste `i.get("assignee") and i["assignee"].get("name")`.
+- **Dono é POR ISSUE. Nunca conclua o lote pela primeira.** Issues criadas na mesma
+  rodada costumam ter donos diferentes: em 30/09, de cinco issues, três eram de uma
+  pessoa e duas de outra — e um bot bloqueou as cinco citando o nome errado em duas,
+  porque leu uma e generalizou. Se a decisão depende de quem é dono, leia **cada uma**.
+  `labelIds` continua fora do alcance: label sugerida vai como texto no comentário.
 - **Anexo**: `issues.getAttachmentDownloadUrl '{"id":"<attachmentId>"}'` devolve
   URL assinada que **expira em ~10 min** — baixe na hora, não guarde o link.
 - **`type` é validado contra o WORKSPACE, não o projeto** — o `issueTypes` do projeto

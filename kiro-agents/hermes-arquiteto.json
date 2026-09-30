@@ -29,5 +29,8 @@
         "effect": "deny"
       }
     ]
-  }
+  },
+  "resources": [
+    "file://__HOME__/.kiro/hermes-dev-team/auditoria-doc-vs-codigo.md"
+  ]
 }
