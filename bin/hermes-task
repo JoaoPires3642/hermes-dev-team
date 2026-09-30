@@ -56,7 +56,7 @@ def trava(manifesto):
     """Segura o lock do manifest enquanto o bloco roda (liberado no close)."""
     alvo = Path(str(manifesto) + ".lock")
     alvo.parent.mkdir(parents=True, exist_ok=True)
-    with open(alvo, "a+") as fh:
+    with open(alvo, "a+", encoding="utf-8") as fh:
         fh.seek(0)
         _travar(fh)
         yield
@@ -138,18 +138,23 @@ def paths(root, key):
 
 def audit(root, **ev):
     (root / ".hermes").mkdir(exist_ok=True)
-    with open(root / ".hermes" / "audit.jsonl", "a") as f:
+    with open(root / ".hermes" / "audit.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"ts": agora(), **ev}, ensure_ascii=False) + "\n")
 
 
 def load(mf):
     if not mf.is_file():
         die(f"tarefa não existe: {mf}")
-    return yaml.safe_load(mf.read_text())
+    return yaml.safe_load(mf.read_text(encoding="utf-8"))
 
 
 def save(mf, m):
-    mf.write_text(yaml.safe_dump(m, allow_unicode=True, sort_keys=False))
+    # encoding explicito: `allow_unicode=True` emite o acento de verdade e o
+    # write_text sem encoding grava no codec do locale (cp1252 no Windows).
+    # O manifest saia cp1252 e todo mundo o le como utf-8 -- um titulo com
+    # acento derrubava o call-dispatch na releitura da propria tarefa.
+    mf.write_text(yaml.safe_dump(m, allow_unicode=True, sort_keys=False),
+                  encoding="utf-8", newline="\n")
 
 
 def parse_ev(pairs):
@@ -259,7 +264,7 @@ def cmd_new(a):
 def cmd_show(a):
     root = projeto(a.projeto)
     _, mf = paths(root, a.key)
-    print(mf.read_text() if mf.exists() else die(f"tarefa não existe: {mf}"))
+    print(mf.read_text(encoding="utf-8") if mf.exists() else die(f"tarefa não existe: {mf}"))
 
 
 TRAVADOS_APOS_SPEC = {"agentes", "allowed_paths", "escopo", "criterios_aceite", "tem_ui"}
