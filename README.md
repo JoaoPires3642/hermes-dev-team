@@ -99,7 +99,7 @@ bin/openwhispr-notes exporta as calls do OpenWhispr (SQLite local, com quem-falo
 bin/call-dispatch    call nova → "de qual cliente?" no Telegram → sessão do @orquestrador; registra os gates
 bin/hermes-delegar   dá trabalho a outro bot numa sessão NOVA por tarefa, na pasta do cliente (confere estado e gate)
 bin/bot-chat-reset   zera a Bot Chat (caixa de recados) de um bot
-plugins/hermes-gates/ /cliente /aprovar /ajustar /rejeitar /ignorar /pendentes no Telegram, sem passar pelo modelo
+plugins/hermes-gates/ /cliente /novo /aprovar /ajustar /rejeitar /ignorar /pendentes no Telegram (prontos para tocar), sem passar pelo modelo
 bin/git-bot          git do time com as regras em código (sem force, rebase antes do push)
 templates/projeto/   AGENTS.md, docs/, memory/, .kiro/steering/, .hermes/tuple.env.example de um projeto novo
 install.sh           instala/atualiza tudo nesta máquina

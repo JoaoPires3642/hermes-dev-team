@@ -4,6 +4,7 @@
   call-dispatch varrer                                   # o openwhispr-notes chama (--ao-criar)
   call-dispatch pendentes                                # o que espera por você
   call-dispatch cliente  <CALL-N> <projeto>   --via telegram:<uid>:<msg>
+  call-dispatch novo     <CALL-N> <nome>      --via ...  # cliente novo: cria a pasta e tria
   call-dispatch ignorar  <CALL-N>             --via ...
   call-dispatch aprovar  <KEY>                --via ...  # GATE 1 (call) ou GATE 2 (issue)
   call-dispatch ajustar  <KEY> <o que mudar>  --via ...
@@ -219,7 +220,6 @@ def cmd_varrer(_a):
     indice = json.loads(indice_f.read_text(encoding="utf-8")) if indice_f.is_file() else {}
     seq_f = d / "seq"
     seq = int(seq_f.read_text().strip() or 0) if seq_f.is_file() else 0
-    nomes = ", ".join(p.name for p in projetos()) if cfg("HERMES_PROJETOS") else "(defina HERMES_PROJETOS)"
 
     novas = 0
     for nota in notas:
@@ -244,8 +244,12 @@ def cmd_varrer(_a):
             linhas.append(f"Quem falou: {call['vozes']}")
         if call["sugestao"]:
             linhas.append(f"Pasta no OpenWhispr: {call['sugestao']}")
-        linhas += ["", "De qual cliente?", f"/cliente {cid} <projeto>", f"/ignorar {cid}",
-                   "", f"Projetos: {nomes}"]
+        linhas += ["", "De qual cliente? Toque:"]
+        linhas += [f"/cliente_{cid.replace('-', '_')}_{toque_nome(p.name)}"
+                   for p in (projetos() if cfg("HERMES_PROJETOS") else [])]
+        linhas += [f"/novo_{cid.replace('-', '_')}  (cliente novo)",
+                   f"/ignorar_{cid.replace('-', '_')}", "",
+                   f"(ou digite /cliente {cid} <projeto>)"]
         call["avisada"] = avisar("\n".join(linhas))
         gravar(d / f"{cid}.json", call)
         print(f"{cid}: {chave}")
@@ -253,9 +257,16 @@ def cmd_varrer(_a):
     return OK
 
 
+def toque_nome(nome):
+    """Nome do projeto como cabe num comando tocável do Telegram (só letra, número e _)."""
+    return re.sub(r"[^0-9a-z]+", "_", nome.casefold()).strip("_")
+
+
 def achar_projeto(nome):
     todos = projetos()
-    exato = [p for p in todos if p.name == nome] or [p for p in todos if p.name.casefold() == nome.casefold()]
+    exato = [p for p in todos if p.name == nome] \
+        or [p for p in todos if p.name.casefold() == nome.casefold()] \
+        or [p for p in todos if toque_nome(p.name) == toque_nome(nome)]
     if len(exato) == 1:
         return exato[0]
     raise Negado(f"não há projeto “{nome}” em {projetos_base()}. "
@@ -285,24 +296,93 @@ vai junto, com a proposta anexada.
 """
 
 
+MARCA_NOVO = "<!-- hermes: projeto novo, a preencher -->"
+
+
+def falta_configurar(proj):
+    """O que impede o @pm de criar issue neste projeto. Lista vazia = pronto.
+    Olha só se as chaves existem e não estão vazias — valor nenhum é lido para fora."""
+    faltas = []
+    agents = proj / "AGENTS.md"
+    if MARCA_NOVO in agents.read_text(encoding="utf-8", errors="replace"):
+        faltas.append(f"preencher {agents} e apagar a linha {MARCA_NOVO}")
+    env = proj / ".hermes" / "tuple.env"
+    chaves = {}
+    if env.is_file():
+        for linha in env.read_text(encoding="utf-8", errors="replace").splitlines():
+            k, _, v = linha.partition("=")
+            chaves[k.strip()] = bool(v.strip())
+    for k in ("TUPLE_API_KEY", "TUPLE_WORKSPACE_ID"):
+        if not chaves.get(k):
+            faltas.append(f"{k} em {env} (copie do tuple.env.example; chmod 600)")
+    return faltas
+
+
+def triar(cid, f, call, proj, via):
+    mf = proj / ".hermes" / "tasks" / cid / "manifest.yaml"
+    if mf.is_file():
+        # tentativa anterior criou a tarefa mas o disparo falhou: reaproveita, se o
+        # @orquestrador ainda não mexeu nela; senão é outra coisa e não se sobrescreve
+        estado = (yaml.safe_load(mf.read_text(encoding="utf-8")) or {}).get("estado")
+        if estado != "RECEIVED":
+            raise Negado(f"{proj.name} já tem uma tarefa {cid} em {estado}")
+    else:
+        rodar("hermes-task", "new", str(proj), cid, "--objetivo", f"Triagem da call: {call['titulo']}",
+              "--agentes", "pm,po")
+    handoff = proj / ".hermes" / "tasks" / cid / "handoffs" / "00-dispatch-para-orquestrador.md"
+    texto = TRIAGEM.format(cid=cid, nota=call["nota"], cliente=proj.name, via=via,
+                           titulo=call["titulo"], criado_em=call["criado_em"], projeto=proj)
+    if falta_configurar(proj):
+        texto += ("\n**Projeto novo, ainda sem configuração** (AGENTS.md vazio, sem chave do TUPLE):\n"
+                  "não tente consultar o TUPLE. Proponha só pelo que a call diz, e liste na proposta\n"
+                  "o que o humano precisa preencher no AGENTS.md (repos, stack, quem é quem).\n")
+    handoff.write_text(texto, encoding="utf-8")
+    rodar("hermes-delegar", "orquestrador", str(proj), cid, str(handoff))
+    call.update(estado="NO_PROJETO", projeto=str(proj), cliente_via=via, cliente_em=agora())
+    gravar(f, call)
+
+
 def cmd_cliente(a):
     via = conferir_via(a.via)
     f, call = ler_call(a.id)
     if call["estado"] != "AGUARDANDO_CLIENTE":
         raise Negado(f"{a.id} já está em {call['estado']} ({call.get('projeto') or '-'})")
     proj = achar_projeto(a.projeto)
-    if (proj / ".hermes" / "tasks" / a.id).exists():
-        raise Negado(f"{proj.name} já tem uma tarefa {a.id}")
-    rodar("hermes-task", "new", str(proj), a.id, "--objetivo", f"Triagem da call: {call['titulo']}",
-          "--agentes", "pm,po")
-    handoff = proj / ".hermes" / "tasks" / a.id / "handoffs" / "00-dispatch-para-orquestrador.md"
-    handoff.write_text(TRIAGEM.format(cid=a.id, nota=call["nota"], cliente=proj.name, via=via,
-                                      titulo=call["titulo"], criado_em=call["criado_em"],
-                                      projeto=proj), encoding="utf-8")
-    rodar("hermes-delegar", "orquestrador", str(proj), a.id, str(handoff))
-    call.update(estado="NO_PROJETO", projeto=str(proj), cliente_via=via, cliente_em=agora())
-    gravar(f, call)
+    triar(a.id, f, call, proj, via)
     print(f"✅ {a.id} → {proj.name}. @orquestrador triando numa sessão só dessa call; o GATE 1 chega aqui.")
+    return OK
+
+
+def template_projeto():
+    """templates/projeto do repo: HERMES_DEV_TEAM (o install.sh grava), senão ao lado do script."""
+    for base in (cfg("HERMES_DEV_TEAM"), Path(__file__).resolve().parent.parent):
+        if base and (Path(base) / "templates" / "projeto" / "AGENTS.md").is_file():
+            return Path(base) / "templates" / "projeto"
+    raise Negado("não achei templates/projeto do hermes-dev-team (rode o install.sh de novo)")
+
+
+def cmd_novo(a):
+    via = conferir_via(a.via)
+    nome = " ".join(a.nome).strip().strip(".")
+    if not nome or len(nome) > 60 or re.search(r'[\\/:*?"<>|]|\.\.', nome) or nome.startswith("."):
+        raise Negado("nome inválido: até 60 caracteres, sem / \\ : * ? \" < > | e sem começar com ponto")
+    f, call = ler_call(a.id)
+    if call["estado"] != "AGUARDANDO_CLIENTE":
+        raise Negado(f"{a.id} já está em {call['estado']} ({call.get('projeto') or '-'})")
+    base = projetos_base()
+    parecido = [p for p in projetos() if toque_nome(p.name) == toque_nome(nome)]
+    if parecido or (base / nome).exists():
+        alvo = parecido[0].name if parecido else nome
+        raise Negado(f"já existe “{alvo}”. Se é ele: /cliente_{a.id.replace('-', '_')}_{toque_nome(alvo)}")
+    proj = base / nome
+    shutil.copytree(template_projeto(), proj)
+    agents = proj / "AGENTS.md"
+    agents.write_text(f"{MARCA_NOVO}\n<!-- criado pelo call-dispatch a partir de {a.id} em {agora()[:10]}: "
+                      "preencha e apague a linha acima -->\n\n"
+                      + agents.read_text(encoding="utf-8"), encoding="utf-8")
+    triar(a.id, f, call, proj, via)
+    print(f"🆕 Projeto “{nome}” criado em {proj}.\n✅ {a.id} → {nome}: @orquestrador triando.\n\n"
+          f"Antes do /aprovar, preencha:\n• {agents}\n• {proj / '.hermes' / 'tuple.env'} (chave do TUPLE)")
     return OK
 
 
@@ -322,13 +402,22 @@ def achar_tarefa(key):
     if not re.fullmatch(r"[A-Za-z0-9._-]+", key or ""):
         raise Negado(f"KEY inválida: {key}")
     achados = [p for p in projetos() if (p / ".hermes" / "tasks" / key / "manifest.yaml").is_file()]
+    if not achados:   # o toque do Telegram pode chegar com outra caixa
+        for p in projetos():
+            t = p / ".hermes" / "tasks"
+            iguais = [d.name for d in t.iterdir() if d.name.casefold() == key.casefold()] if t.is_dir() else []
+            if iguais:
+                key, achados = iguais[0], [p]
+                break
     if not achados:
         raise Negado(f"nenhum projeto tem a tarefa {key}")
     if len(achados) > 1:
         raise Negado(f"{key} existe em mais de um projeto: {', '.join(p.name for p in achados)}")
     proj = achados[0]
     mf = proj / ".hermes" / "tasks" / key / "manifest.yaml"
-    return proj, yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+    m = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+    m.setdefault("task_id", key)
+    return proj, m
 
 
 def proximo_handoff(proj, key, para, texto):
@@ -347,15 +436,40 @@ def mover(proj, key, estado, **ev):
     return rodar("hermes-task", *args)
 
 
-def delegar(bot, proj, key, handoff):
-    rodar("hermes-delegar", bot, str(proj), key, str(handoff))
+def delegar(bot, proj, key, handoff, gate=None):
+    try:
+        rodar("hermes-delegar", bot, str(proj), key, str(handoff))
+    except Negado as e:
+        if not gate:
+            raise
+        # o gate JÁ foi registrado no hermes-task; só o disparo falhou. Repetir o mesmo
+        # comando retoma (pendente_de_disparo), sem registrar o gate de novo.
+        raise Negado(f"{gate} registrado, mas o disparo do @{bot} falhou: {e}\n"
+                     f"Tente de novo: /aprovar_{key.replace('-', '_')}")
+
+
+def pendente_de_disparo(proj, key, bot):
+    """Handoff do humano para <bot> sem rodada depois dele = disparo que falhou."""
+    hs = sorted((proj / ".hermes" / "tasks" / key / "handoffs").glob(f"*-humano-para-{bot}.md"))
+    if not hs:
+        return None
+    ultimo = hs[-1]
+    runs = (proj / ".hermes" / "runs" / key).glob(f"*-{bot}.json")
+    if any(r.stat().st_mtime >= ultimo.stat().st_mtime for r in runs):
+        return None
+    return ultimo
 
 
 def cmd_aprovar(a):
     via = conferir_via(a.via)
     proj, m = achar_tarefa(a.key)
+    a.key = m["task_id"]
     estado, art = m.get("estado"), m.get("artefatos") or {}
     if estado == "AWAITING_APPROVAL":
+        faltas = falta_configurar(proj)
+        if faltas:
+            raise Negado(f"{proj.name} ainda não está pronto para criar issue. Falta:\n• "
+                         + "\n• ".join(faltas) + f"\n\nDepois: /aprovar_{a.key.replace('-', '_')}")
         mover(proj, a.key, "SPECIFYING", issues=f"proposta:{art.get('proposta') or '?'}", via=via)
         h = proximo_handoff(proj, a.key, "pm", f"""# Handoff · {a.key} · humano → @pm
 **GATE 1 aprovado** pelo humano ({via}).
@@ -370,7 +484,7 @@ def cmd_aprovar(a):
 3. Registre as KEYs criadas num handoff para o @po e chame:
    `hermes-delegar po "{proj}" {a.key} <handoff>`
 """)
-        delegar("pm", proj, a.key, h)
+        delegar("pm", proj, a.key, h, gate="GATE 1")
         print(f"✅ GATE 1 de {a.key} aprovado. @pm criando as issues no TUPLE.")
     elif estado == "AWAITING_SPEC_APPROVAL":
         mover(proj, a.key, "SPEC_APPROVED", via=via)
@@ -381,8 +495,12 @@ def cmd_aprovar(a):
 (`hermes-task move "{proj}" {a.key} IMPLEMENTING --by techlead --ev specs=<dir> --ev branch=<nome>`)
 e libere os devs com `hermes-delegar <dev> "{proj}" {a.key} <handoff>`.
 """)
-        delegar("techlead", proj, a.key, h)
+        delegar("techlead", proj, a.key, h, gate="GATE 2")
         print(f"✅ GATE 2 de {a.key} aprovado. @techlead gerando as specs.")
+    elif estado in ("SPECIFYING", "SPEC_APPROVED") and \
+            (h := pendente_de_disparo(proj, a.key, bot := "pm" if estado == "SPECIFYING" else "techlead")):
+        delegar(bot, proj, a.key, h, gate="GATE")
+        print(f"🔁 {a.key}: o gate já estava aprovado; disparo do @{bot} retomado.")
     else:
         raise Negado(f"{a.key} está em {estado}: não há gate esperando aprovação")
     return OK
@@ -394,6 +512,7 @@ def cmd_ajustar(a):
     if not texto:
         raise Negado("diga o que mudar: /ajustar <KEY> <o que mudar>")
     proj, m = achar_tarefa(a.key)
+    a.key = m["task_id"]
     estado = m.get("estado")
     if estado == "AWAITING_APPROVAL":
         voltas = sum(1 for h in m.get("historico") or []
@@ -423,6 +542,7 @@ def cmd_rejeitar(a):
     if not motivo:
         raise Negado("diga o motivo: /rejeitar <KEY> <motivo>")
     proj, m = achar_tarefa(a.key)
+    a.key = m["task_id"]
     estado = m.get("estado")
     if estado == "AWAITING_APPROVAL":
         mover(proj, a.key, "CLOSED", motivo=f"{motivo} ({via})")
@@ -459,6 +579,8 @@ def main(argv):
     s.add_parser("pendentes").set_defaults(f=cmd_pendentes)
     x = s.add_parser("cliente"); x.add_argument("id"); x.add_argument("projeto")
     x.add_argument("--via", required=True); x.set_defaults(f=cmd_cliente)
+    x = s.add_parser("novo"); x.add_argument("id"); x.add_argument("nome", nargs="*")
+    x.add_argument("--via", required=True); x.set_defaults(f=cmd_novo)
     x = s.add_parser("ignorar"); x.add_argument("id")
     x.add_argument("--via", required=True); x.set_defaults(f=cmd_ignorar)
     x = s.add_parser("aprovar"); x.add_argument("key")

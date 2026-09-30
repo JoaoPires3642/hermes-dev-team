@@ -82,6 +82,9 @@ for b in "${BOTS[@]}"; do
   chmod 644 "$HOME/.kiro/agents/hermes-$b.json"
 done
 
+# onde está o repo: o call-dispatch copia templates/projeto daqui para cliente novo
+set_env "$HERMES_ROOT/.env" HERMES_DEV_TEAM "$REPO"
+
 # ---------------------------------------------------------------- bots
 for b in "${BOTS[@]}"; do
   src="$REPO/bots/$b"

@@ -14,7 +14,11 @@
   > roda até ele responder `/cliente CALL-N <projeto>` — call pessoal ou de teste se ignora
   > (`/ignorar`) e não custa nada. Com a resposta, o `call-dispatch` confere que
   > `$HERMES_PROJETOS/<projeto>/AGENTS.md` existe (nunca chuta o parecido) e abre uma sessão
-  > do @orquestrador **só daquela call**, na pasta do projeto (§2).
+  > do @orquestrador **só daquela call**, na pasta do projeto (§2). Os comandos vêm prontos para
+  > tocar (`/cliente_CALL_2_acme` — o Telegram só faz link de letra, número e `_`; o plugin
+  > traduz). **Cliente novo:** `/novo_CALL_2` e o nome na mensagem seguinte — a pasta nasce de
+  > `templates/projeto` e a triagem roda, mas o `/aprovar` do GATE 1 é recusado até o humano
+  > preencher `AGENTS.md` e `.hermes/tuple.env` (a chave do TUPLE nunca passa pelo Telegram).
   > **A API e o MCP do OpenWhispr são em nuvem e pedem plano pago**; não são usados. Ler o SQLite
   > é grátis e local, mas **não é contrato público**: mudança de schema dele quebra a ponte
   > (foi o que aconteceu com o `transcript`, que é JSON de segmentos e não texto).

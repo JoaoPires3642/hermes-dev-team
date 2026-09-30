@@ -62,6 +62,13 @@ quando a tarefa chega em `AWAITING_APPROVAL` / `AWAITING_SPEC_APPROVAL` / `AWAIT
 | **GATE 2** | @techlead move a issue para `AWAITING_SPEC_APPROVAL` | `/aprovar KEY` · `/ajustar KEY <o quê>` · `/rejeitar KEY <motivo>` | aprovar → chama o @techlead para gerar `.kiro/specs`; ajustar → volta ao @techlead |
 | **GATE 3** | @qa move para `AWAITING_REVIEW` (DoD aceito) | revisa e faz o merge do PR | bot nunca faz merge nem move issue para `DONE` |
 
+As mensagens trazem os comandos prontos para **tocar** (`/aprovar_CALL_1`,
+`/cliente_CALL_2_acme`); `/ajustar_X`, `/rejeitar_X` e `/novo_CALL_N` pedem o texto na
+mensagem seguinte. **Cliente novo** (`/novo_CALL_N` + nome): o `call-dispatch` cria a pasta
+do projeto a partir de `templates/projeto` e tria; o `/aprovar` do GATE 1 fica **recusado**
+até o humano preencher o `AGENTS.md` (e apagar a marca `<!-- hermes: projeto novo -->`) e o
+`.hermes/tuple.env` — sem isso não há onde criar issue.
+
 Humano escreveu "aprovado" em texto livre? **Não vale** — responda com o comando certo
 (`/aprovar <KEY>`). `/pendentes` lista o que espera por ele.
 

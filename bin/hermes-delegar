@@ -74,6 +74,14 @@ def agora():
     return dt.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def raiz_hermes():
+    env = os.getenv("HERMES_HOME")
+    raiz = Path(env) if env else (
+        Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "hermes"
+        if sys.platform == "win32" else Path.home() / ".hermes")
+    return raiz.parent.parent if raiz.parent.name == "profiles" else raiz
+
+
 def cfg(nome):
     """Variável do ambiente ou, na falta, do ~/.hermes/.env. O gateway roda como serviço
     (systemd / tarefa do Windows) e não herda o shell do usuário: sem isto, o comando que
@@ -81,13 +89,7 @@ def cfg(nome):
     v = os.getenv(nome)
     if v:
         return v
-    env = os.getenv("HERMES_HOME")
-    raiz = Path(env) if env else (
-        Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "hermes"
-        if sys.platform == "win32" else Path.home() / ".hermes")
-    if raiz.parent.name == "profiles":
-        raiz = raiz.parent.parent
-    f = raiz / ".env"
+    f = raiz_hermes() / ".env"
     if f.is_file():
         for linha in f.read_text(encoding="utf-8", errors="replace").splitlines():
             if linha.startswith(nome + "="):
@@ -189,6 +191,44 @@ def avisar(texto, anexo=None):
     return ok
 
 
+JANELA_AGRUPAR = 600   # s: falha igual dentro disto não gera outro aviso
+
+
+def assinatura(bot, texto):
+    """O mesmo erro em rodadas diferentes vira a mesma assinatura: tira números, ids e
+    caminhos, que mudam de rodada para rodada."""
+    t = re.sub(r"[0-9a-f]{6,}|\d+|/[^\s:]+", "", texto.casefold())
+    return f"{bot}:{' '.join(t.split())[-300:]}"
+
+
+def avisar_agrupado(sig, key, texto, anexo=None):
+    """Manda o 1º aviso de uma falha; as iguais nos próximos 10 min só entram na conta.
+    Cinco issues falhando pelo mesmo motivo eram cinco mensagens idênticas no Telegram."""
+    f = raiz_hermes() / "hermes-delegar-avisos.json"
+    try:
+        vistos = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        vistos = {}
+    agora_s = time.time()
+    vistos = {k: v for k, v in vistos.items() if agora_s - v["em"] < JANELA_AGRUPAR}
+    if sig in vistos:
+        vistos[sig]["keys"] = sorted(set(vistos[sig]["keys"]) | {key})
+        gravar(f, vistos)
+        return "agrupado"
+    vistos[sig] = {"em": agora_s, "keys": [key]}
+    gravar(f, vistos)
+    return avisar(texto + "\n\n(falha igual em outras tarefas nos próximos 10 min não gera outro aviso; "
+                          "veja `hermes-delegar status <projeto>`)", anexo)
+
+
+def provedor(bot):
+    try:
+        cfgy = yaml.safe_load((raiz_hermes() / "profiles" / bot / "config.yaml").read_text(encoding="utf-8"))
+        return ((cfgy or {}).get("model") or {}).get("provider")
+    except (OSError, yaml.YAMLError):
+        return None
+
+
 def cauda(path, linhas=12):
     try:
         return "\n".join(Path(path).read_text(encoding="utf-8", errors="replace").splitlines()[-linhas:])
@@ -205,6 +245,14 @@ def artefato(root, m, nome):
     return p if p.is_file() else None
 
 
+def toques(key):
+    """Comandos prontos para tocar no Telegram (só letra, número e _ viram link)."""
+    t = key.replace("-", "_")
+    if not re.fullmatch(r"[A-Za-z0-9_]+", t):
+        return f"/aprovar {key}\n/ajustar {key} <o que mudar>\n/rejeitar {key} <motivo>"
+    return f"/aprovar_{t}\n/ajustar_{t}\n/rejeitar_{t}"
+
+
 def aviso_final(reg, m):
     """O que o humano precisa saber depois da rodada — gate, falha ou silêncio suspeito."""
     root, key, bot = Path(reg["projeto"]), reg["key"], reg["bot"]
@@ -219,12 +267,15 @@ def aviso_final(reg, m):
                 f"Log: {reg['erros']}"), None
 
     if depois == "AWAITING_APPROVAL" and antes != depois:
-        return (f"🚦 GATE 1 · {cab}\n\n{resposta}\n\n"
-                f"/aprovar {key}\n/ajustar {key} <o que mudar>\n/rejeitar {key} <motivo>"), \
+        novo = "<!-- hermes: projeto novo, a preencher -->" in \
+            (root / "AGENTS.md").read_text(encoding="utf-8", errors="replace")
+        if novo or not (root / ".hermes" / "tuple.env").is_file():
+            resposta += (f"\n\n⚠️ Projeto novo: antes do /aprovar, preencha {root / 'AGENTS.md'} "
+                         f"e {root / '.hermes' / 'tuple.env'} (chave do TUPLE). Sem isso o /aprovar recusa.")
+        return (f"🚦 GATE 1 · {cab}\n\n{resposta}\n\n" + toques(key)), \
             artefato(root, m, "proposta")
     if depois == "AWAITING_SPEC_APPROVAL" and antes != depois:
-        return (f"🚦 GATE 2 · {cab}\n\n{resposta}\n\n"
-                f"/aprovar {key}\n/ajustar {key} <o que mudar>\n/rejeitar {key} <motivo>"), \
+        return (f"🚦 GATE 2 · {cab}\n\n{resposta}\n\n" + toques(key)), \
             artefato(root, m, "story")
     if depois == "AWAITING_REVIEW" and antes != depois:
         pr = (m.get("artefatos") or {}).get("pr") or "?"
@@ -276,6 +327,14 @@ def preparar(a):
         audit(root, tipo="delegar-negado", task=a.key, bot=bot, estado=estado)
         die(f"NEGADO: @{bot} não entra em {a.key} no estado {estado} "
             f"(a vez dele é em: {', '.join(sorted(PODE[bot]))})")
+    if provedor(bot) == "kiro-acp" and not shutil.which("kiro-cli"):
+        # sem isto o bot sobe, o kiro-pool tenta 3 vezes e só então falha — por issue
+        audit(root, tipo="delegar-negado", task=a.key, bot=bot, motivo="kiro-cli ausente")
+        avisar_agrupado(f"{bot}:kiro-cli-ausente", a.key,
+                        f"❌ [{root.name}] @{bot} não pode rodar: `kiro-cli` não está instalado nesta "
+                        f"máquina (é o cérebro dele). Instale e rode `kiro-cli login`; depois repita o passo.")
+        die(f"@{bot} usa o kiro-cli, que não está instalado nesta máquina. O humano foi avisado; "
+            f"não tente de novo — registre na issue que parou aqui")
     handoff = Path(a.handoff).expanduser()
     handoff = (handoff if handoff.is_absolute() else Path.cwd() / handoff).resolve()
     pasta_ok = root / ".hermes" / "tasks" / a.key / "handoffs"
@@ -344,7 +403,10 @@ def supervisionar(arq):
     estado, m = ler_estado(root / ".hermes" / "tasks" / reg["key"] / "manifest.yaml")
     reg.update(fim=agora(), estado_depois=estado)
     texto, anexo = aviso_final(reg, m)
-    if texto:
+    if texto and reg["status"] != "ok":
+        sig = assinatura(bot, cauda(reg["saida"], 4) + cauda(reg["erros"], 4))
+        reg["avisado"] = avisar_agrupado(sig, reg["key"], texto, anexo)
+    elif texto:
         reg["avisado"] = avisar(texto, anexo)
     gravar(arq, reg)
     audit(root, tipo="delegar-fim", task=reg["key"], bot=bot, status=reg["status"],

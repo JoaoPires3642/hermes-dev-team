@@ -92,6 +92,9 @@ for s in "$REPO"/extra-skills/*/; do
   cp "$s/SKILL.md" "$HOME/.kiro/hermes-dev-team/$(basename "$s").md"
 done
 
+# onde está o repo: o call-dispatch copia templates/projeto daqui para cliente novo
+set_env "$HERMES_ROOT/.env" HERMES_DEV_TEAM "$REPO_WIN"
+
 for b in "${BOTS[@]}"; do
   src="$REPO/bots/$b"
   [[ -d "$src" ]] || die "bot desconhecido: $b"
