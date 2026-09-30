@@ -74,12 +74,30 @@ Depois da spec aprovada, `agentes`, `allowed_paths`, `escopo`, `criterios_aceite
 O @qa só move com todas as evidências — e o `hermes-task` confere no git que nenhum
 arquivo saiu de `allowed_paths`:
 
-`build=ok` · `lint_typecheck=ok` · `testes=ok` · `integracao=ok|na` · `seguranca=ok` ·
+`build=ok|na` · `lint_typecheck=ok|na` · `testes=ok` · `integracao=ok|na` · `seguranca=ok` ·
 `ca=ok` (todos os critérios verificados) · `revisao=<arquivo>` (skill `revisao-codigo`) ·
 `evidencia_visual=<arquivo>` (se `tem_ui`) · `pr=<url>` · `tuple=ok` (issue atualizada).
 
 `ok` é afirmação sua, registrada com seu nome no audit: **só escreva `ok` para o que você
 rodou e viu passar**. Gerar código não é "feito".
+
+### `na` é para o que não roda aqui — e só
+
+`build` e `lint_typecheck` aceitam `na` porque existe projeto onde o comando **não roda
+nesta máquina e nunca vai rodar**: o feed npm privado do agregador exige PAT, e bot não
+manuseia PAT. Nesses casos o projeto declara o que não roda no próprio `AGENTS.md`.
+
+Leia o `AGENTS.md` **antes** de recusar. Se o comando está listado lá como não
+verificável:
+
+- escreva `na`, não `ok` — você não viu passar, e mentir aqui é pior que a limitação;
+- **não** marque `BLOCKED` e **não** peça waiver ao humano: a decisão já foi tomada
+  quando alguém escreveu aquilo no `AGENTS.md`, e pedir de novo a cada tarefa gasta a
+  pessoa à toa;
+- escreva uma linha no comentário da issue dizendo o que ficou sem verificar.
+
+Se o comando **não** está listado e mesmo assim falhou, aí sim é achado: relate. A
+diferença entre "decidimos que não roda" e "quebrou hoje" é o que separa waiver de bug.
 
 ## Contrato de API (front + back em paralelo)
 

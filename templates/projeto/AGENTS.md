@@ -39,7 +39,22 @@ Branch compartilhada com humanos? (sim/não — se sim, quem):
 ## Contrato de comandos
 - Ordem entre repos (se houver contrato compartilhado):
 - CI/CD — o que dispara em PR / branch de integração / main:
-- Regra: **Build → Test → Push**, nessa ordem, sempre.
+- Regra: **Build → Test → Push**, nessa ordem, sempre — exceto o listado abaixo.
+
+### O que NÃO roda nesta máquina (não peça waiver: decidido aqui)
+
+Preencha só o que de fato não roda. Vazio = tudo roda, e o bot deve rodar.
+
+| comando | por quê | o que vale no lugar |
+|---|---|---|
+| | | |
+
+Um comando listado aqui vira `na` no DoD (`build=na`, `lint_typecheck=na`), **nunca
+`ok`** — quem revisa precisa saber o que não foi verificado. O bot **não** marca
+`BLOCKED` nem pede waiver por isso: a decisão está tomada nesta tabela. Ele entrega e
+escreve uma linha no comentário da issue dizendo o que ficou sem checar.
+
+Comando que **não** está listado e falha é achado, não waiver: o bot relata.
 
 ## Acessos e restrições
 - VPN necessária? Bancos: só leitura? Ambientes que bots NÃO tocam:

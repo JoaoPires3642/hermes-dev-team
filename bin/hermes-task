@@ -18,6 +18,7 @@ import contextlib
 import datetime as dt
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
@@ -82,8 +83,18 @@ TUPLE_STATUS = {
 }
 
 # evidência: "arquivo" = caminho que precisa existir · "ok" = precisa ser ok · "texto" = não vazio
+#
+# `build` e `lint_typecheck` aceitam `na` pelo mesmo motivo que `integracao` já aceitava:
+# há projeto onde o comando não roda nesta máquina e nunca vai rodar — o feed npm privado
+# do agregador exige PAT, e bot não manuseia PAT. Exigir `ok` ali não torna o build
+# verificado: só faz o QA recusar e o humano assinar um waiver por tarefa, para sempre.
+#
+# `na` não é atalho: quem assina escreve `na` explicitamente, e isso aparece no manifest,
+# no audit e no comentário da issue. A diferença entre "passou" e "não foi verificado"
+# continua visível para quem revisa — que é a única coisa que o DoD precisa garantir aqui.
+# O projeto declara o que não roda no próprio `AGENTS.md`.
 DOD = {
-    "build": "ok", "lint_typecheck": "ok", "testes": "ok", "integracao": "ok|na",
+    "build": "ok|na", "lint_typecheck": "ok|na", "testes": "ok", "integracao": "ok|na",
     "seguranca": "ok", "ca": "ok", "revisao": "arquivo", "pr": "texto", "tuple": "ok",
 }
 
@@ -187,8 +198,20 @@ def arquivos_da_tarefa(root, m):
     """Mudança LÍQUIDA da tarefa: arquivos tocados por commits que citam a KEY e que ainda
     diferem de antes do 1º desses commits, + mudanças não commitadas."""
     out = set()
-    for r in m.get("repos") or []:
-        repo = root / r["path"]
+    repos = m.get("repos") or []
+    # string única ("partner-hub-admin-vertem") itera como caracteres, não como um
+    # repo. É a forma que os manifests deste projeto usam.
+    if isinstance(repos, str):
+        repos = [x.strip() for x in repos.split(",") if x.strip()]
+    for r in repos:
+        # `repos` é escrito à mão e chega em três formas: string única
+        # ("partner-hub"), lista de strings, ou lista de dicts {path: ...}. Exigir
+        # só a última travou o DoD de tarefa pronta: o walker estourava TypeError
+        # ANTES de gravar audit, então o QA via a transição falhar sem motivo no log.
+        caminho = r.get("path") if isinstance(r, dict) else r
+        if not caminho:
+            continue
+        repo = root / caminho
         if not (repo / ".git").exists():
             continue
         g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
@@ -400,11 +423,76 @@ def cmd_move(a):
     if a.key.upper().startswith("CALL-"):
         print(f"{de} → {m['estado']}  ·  (tarefa da call: não existe no TUPLE, não mova nada lá)")
     else:
-        print(f"{de} → {m['estado']}  ·  TUPLE: mova para {TUPLE_STATUS[m['estado']]}")
+        # O board é espelho do manifest e se move junto — em código, não em prosa.
+        estado_tuple, detalhe = sincronizar_tuple(root, a.key, m["estado"], ev.get("motivo", ""))
+        print(f"{de} → {m['estado']}  ·  {detalhe}")
+        audit(root, tipo="tuple-sync", task=a.key, estado=m["estado"],
+              resultado=estado_tuple, detalhe=detalhe)
+        if estado_tuple == "erro":
+            print(f"AVISO: o TUPLE não acompanhou ({detalhe}). A transição local VALE; "
+                  f"ajuste o board na mão ou avise o humano.", file=sys.stderr)
     if disparou:
         print(f"CIRCUIT BREAKER: {m['voltas_qa']} voltas QA⇄DEV. Tarefa BLOCKED — alerte o humano "
               "no Telegram com o histórico e não reabra o loop.", file=sys.stderr)
         sys.exit(3)
+
+
+def _tuple(root, *args, timeout=60):
+    """Chama o tuple-api. No Windows ele é um shell script sem extensão: o
+    subprocess não o executa direto (FileNotFoundError), só via bash."""
+    cmd = ["tuple-api", str(root), *args]
+    if sys.platform == "win32":
+        cmd = ["bash", "-lc", " ".join(shlex.quote(c) for c in cmd)]
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def sincronizar_tuple(root, key, estado, motivo=""):
+    """Move a issue no TUPLE junto com a transição local.
+
+    Existia como instrução em prosa ("TUPLE: mova para X") e dependia de o bot
+    lembrar de obedecer. Três vezes o board ficou mentindo: task em
+    desenvolvimento com o card em TODO, e quem descobriu foi o humano. Aqui é
+    código, então não tem como esquecer.
+
+    Falha de rede/403 NÃO derruba a transição local: o manifest é a fonte da
+    verdade do fluxo, e o board é espelho. Devolve o que aconteceu, para o
+    chamador imprimir.
+    """
+    alvo = TUPLE_STATUS[estado]
+
+    # BLOCKED por limitação do ambiente local (build sem credencial, feed privado,
+    # VPN) não é impedimento do trabalho: pintar o card de vermelho alarma o time
+    # inteiro por algo que é da máquina, não da task. Fica só no manifest.
+    if alvo == "BLOCKED" and re.search(
+        r"\b(feed privado|sem PAT|E401|credencia|VPN|nao autentica|não autentica|"
+        r"ambiente local|build nao roda|build não roda|waiver)\b", motivo, re.I
+    ):
+        return ("pulado", f"TUPLE intocado: BLOCKED por limitação de ambiente, não do trabalho")
+
+    try:
+        ctx = _tuple(root, "contexto")
+        if ctx.returncode:
+            return ("erro", "não consegui o contexto do TUPLE")
+        ws = json.loads(ctx.stdout).get("workspaceId")
+        if not ws:
+            return ("erro", "workspaceId ausente no contexto")
+
+        r = _tuple(root, "get", "issues.getByKey",
+                   json.dumps({"key": key, "workspaceId": ws}))
+        if r.returncode:
+            return ("erro", f"issue {key} não encontrada no TUPLE")
+        dados = json.loads(r.stdout)["result"]["data"]
+        issue = dados.get("issue", dados)
+        if issue.get("status") == alvo:
+            return ("ok", f"TUPLE já estava em {alvo}")
+
+        u = _tuple(root, "post", "issues.update",
+                   json.dumps({"id": issue["id"], "status": alvo}))
+        if u.returncode:
+            return ("erro", f"issues.update falhou para {alvo}")
+        return ("ok", f"TUPLE movido para {alvo}")
+    except Exception as e:                                    # rede, timeout, JSON
+        return ("erro", f"{type(e).__name__}")
 
 
 def cmd_check(a):
