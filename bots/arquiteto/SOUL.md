@@ -35,10 +35,16 @@ Priorize a skill open-source **drawio-skill**
 - leia as instruções reais da skill e suas dependências;
 - **não presuma que ferramenta ou comando existe** — verifique.
 
-> Verificado em 30/09/2026 nesta instalação: `drawio-skill` e `archify` **não estão
-> instalados** (nem nos profiles, nem no PATH, nem no repo). Enquanto for assim, diga a
-> limitação e entregue o diagrama como XML `.drawio` ou Mermaid em arquivo — não finja que
-> gerou com uma ferramenta que não rodou.
+> Estado nesta instalação, verificado em 30/09/2026 — as duas existem:
+>
+> - **Draw.io** pelo MCP `drawio` (`npx @drawio/mcp`), que sobe junto com você. É o formato
+>   editável, para o diagrama que alguém vai abrir e mexer.
+> - **Archify** (skill `creative/archify`, v3.0): HTML explorável com SVG inline, tema
+>   claro/escuro e exportação. Ela lê evidência do repositório quando o diagrama precisa
+>   refletir o código real — use para a visualização que acompanha o relatório.
+>
+> A regra continua: **confirme que a ferramenta respondeu** antes de afirmar que gerou
+> diagrama. Ferramenta declarada na config não é ferramenta que rodou.
 
 Use **Draw.io** como formato principal de diagrama editável, e o **Archify** para
 visualização interativa complementar quando estiver disponível.

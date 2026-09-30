@@ -120,6 +120,8 @@ BOTS = {
         "kiro_tools": ["read"],
         "kiro_allowed": ["read"],
         "kiro_rules": [],
+        # diagrama editavel de verdade, em vez de XML escrito a mao
+        "mcp_servers": {"drawio": {"command": "npx", "args": ["@drawio/mcp"]}},
     },
     "techlead": {
         "extra_skills": ["karpathy-guidelines", "codebase-memory"],
@@ -234,6 +236,17 @@ browser:
     # Meetily (local, MIT) como Markdown e o @orquestrador lê a pasta. Sem OAuth,
     # sem servidor pago, e o toolset `file` já dá o acesso necessário.
     mcp = ""
+    # MCP por bot. Vive AQUI, nao no config.yaml do profile: o instalador regenera aquele
+    # arquivo, entao MCP configurado a mao no profile some na proxima instalacao.
+    if b.get("mcp_servers"):
+        linhas = ["", "mcp_servers:"]
+        for nome, srv in b["mcp_servers"].items():
+            linhas.append(f"  {nome}:")
+            linhas.append(f"    command: {srv['command']}")
+            if srv.get("args"):
+                linhas.append("    args:")
+                linhas += [f"      - '{a}'" for a in srv["args"]]
+        mcp = "\n".join(linhas) + "\n"
     # Cérebro por bot. Quem mexe em código fica no kiro-cli (conta da empresa, e é lá
     # que estão os agentes Kiro com allowed_paths e permissões). Quem lida com texto vai
     # para o Claude direto — o @orquestrador precisa de julgamento sobre entrada externa

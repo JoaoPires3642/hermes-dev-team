@@ -77,3 +77,9 @@ approvals:
     - "*rm -rf ~*"
     - "*hermes gateway*"
     - "*schtasks*"
+
+mcp_servers:
+  drawio:
+    command: npx
+    args:
+      - '@drawio/mcp'
