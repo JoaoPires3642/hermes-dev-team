@@ -17,7 +17,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALL_BOTS=(orquestrador po pm arquiteto techlead dev-front dev-back qa)
+ALL_BOTS=(orquestrador po pm arquiteto manutencao techlead dev-front dev-back qa)
 BOTS=("${@:-${ALL_BOTS[@]}}")
 
 HERMES_ROOT="${HERMES_HOME:-$LOCALAPPDATA/hermes}"
@@ -126,7 +126,7 @@ criar_wrapper() {
   printf '"%s" "%s" %%*%s\n' "$win" "$REPO_WIN\\bin\\$f" "$CR" >>"$BIN_DIR/$f.cmd"
 }
 
-for f in openwhispr-notes git-bot hermes-task bot-chat-reset hermes-delegar call-dispatch resumo-do-dia relatorio-tecnico; do
+for f in openwhispr-notes git-bot hermes-task bot-chat-reset hermes-delegar call-dispatch resumo-do-dia relatorio-tecnico skill-review; do
   [[ -f "$REPO/bin/$f" ]] && criar_wrapper "$f" python python
 done
 for f in tuple-api kiro-pool; do
@@ -148,6 +148,18 @@ done
 # call-dispatch nao achava templates/projeto para cliente novo. Mesma armadilha que o
 # comentario do KIRO_WIN la em cima descreve -- e que esta linha repetia.
 set_env "$HERMES_ROOT/.env" HERMES_DEV_TEAM "$REPO_SLASH"
+
+# COLHE ANTES DE SOBRESCREVER. O instalador reescreve profiles/<bot>/skills/ a partir
+# do repo, entao tudo que um bot escreveu na propria skill desde a ultima instalacao
+# morre aqui -- calado, que e o pior jeito. Ja aconteceu duas vezes em 30/09.
+# So guarda o que divergiu; quem decide o que entra e o @manutencao, depois.
+if [[ -f "$REPO/bin/skill-review" ]]; then
+  n=$(HERMES_DEV_TEAM="$REPO" python "$REPO/bin/skill-review" colher 2>/dev/null | grep -c . || true)
+  if [[ "${n:-0}" -gt 0 ]]; then
+    say "Colhendo $n skill(s) que bot modificou (serao revisadas pelo @manutencao)"
+    HERMES_DEV_TEAM="$REPO" python "$REPO/bin/skill-review" analisar >/dev/null 2>&1 || true
+  fi
+fi
 
 for b in "${BOTS[@]}"; do
   src="$REPO/bots/$b"

@@ -15,7 +15,7 @@ FORMAS = {
     "orquestrador": ("circle", 313), "po": ("square", 13), "pm": ("diamond", 43),
     "techlead": ("triangle", 193), "dev-front": ("circle", 253),
     "dev-back": ("triangle", 103), "qa": ("square", 283),
-    "arquiteto": ("hexagon", 163),
+    "arquiteto": ("hexagon", 163), "manutencao": ("diamond", 223),
 }
 
 FINGIR_HUMANO = ["hermes-task * --by humano*", "hermes-task *--by=humano*"]
@@ -55,6 +55,32 @@ SO_LEITURA = [
     "*gh pr merge*", "*gh release*", "*gh pr create*",
     # o proprio sistema
     "*rm -rf /*", "*rm -rf ~*", "*hermes gateway*", "*schtasks*",
+]
+
+# O @manutencao commita na main do hermes-dev-team -- e o unico que pode. Entao o que
+# se bloqueia nao e git, e o que esta FORA do alcance dele, mais as duas coisas que um
+# revisor nunca pode fazer: reescrever historico e mexer nas proprias travas.
+#
+# `skill-review`, o approvals.deny dele e o proprio SOUL so mudam por mao humana. Um
+# revisor que reescreve o criterio nao revisa nada -- e ele vai, um dia, estar
+# convencido de que a mudanca faz sentido. E justamente ai que isto precisa valer.
+PLATAFORMA = [
+    # historico e irreversivel
+    "*--force*", "*push -f*", "*filter-branch*", "*reset --hard*", "*git*rebase*-i*",
+    # as proprias travas. RODAR o skill-review e o trabalho dele; o que se bloqueia e
+    # EDITAR. O shell nao basta -- ele tem write_file -- entao a defesa real esta dentro
+    # do proprio skill-review, que recusa commitar diff que toque nestes arquivos.
+    "*sed -i*skill-review*", "*sed -i*manutencao*", "*> *bin/skill-review*",
+    "*nano*skill-review*", "*vim*skill-review*", "*cp *bin/skill-review*",
+    "*nano*manutencao*", "*vim*manutencao*", "*code *souls/manutencao*",
+    "*mv *skill-review*", "*rm *skill-review*", "*> *souls/manutencao*",
+    # trabalho de cliente nao e dele
+    "*call-dispatch*", "*hermes-task*move*", "*hermes-delegar*", "*tuple-api * post *",
+    "*--by humano*", "*--by=humano*",
+    # producao
+    "*kubectl *", "*helm *", "*terraform apply*", "*terraform destroy*",
+    "*docker push*", "*npm publish*", "*gh pr merge*", "*gh release*",
+    "*rm -rf /*", "*rm -rf ~*",
 ]
 
 BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
@@ -139,6 +165,21 @@ BOTS = {
         # O comando vai sem caminho: o instalador troca pelo .exe absoluto no Windows.
         "mcp_servers": {"drawio": {"command": "npx", "args": ["@drawio/mcp"]},
                         "codebase-memory-mcp": {"command": "codebase-memory-mcp"}},
+    },
+    "manutencao": {
+        # sonnet: le diff e decide se uma mudanca tirou uma trava. Haiku erra para o
+        # lado de aprovar, que e exatamente o erro caro aqui; opus nao se paga numa
+        # rotina diaria cujo trabalho duro ja esta no `skill-review`.
+        "model": "claude-sonnet-5-5", "provider": "anthropic",
+        "desc": "Manutencao: dono da plataforma (hermes-dev-team + profiles desta maquina). Revisa o que os bots escrevem nas proprias skills, vigia o upstream do Hermes, propoe patch a partir de erro que repete e cuida da higiene. Unico bot com escrita no repo da plataforma.",
+        "pet": "pipe-wrench-robot",
+        # terminal: sem ele nao roda skill-review, git, doctor nem a suite.
+        # cronjob: a rodada e diaria. Sem browser: revisao se faz no diff.
+        "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
+        "hermes_deny_extra": PLATAFORMA,
+        "kiro_tools": ["read"],
+        "kiro_allowed": ["read"],
+        "kiro_rules": [],
     },
     "techlead": {
         "extra_skills": ["karpathy-guidelines", "codebase-memory"],

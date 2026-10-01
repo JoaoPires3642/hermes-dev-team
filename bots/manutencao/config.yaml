@@ -1,0 +1,79 @@
+# Bot @manutencao — gerado por scripts/gen_bots.py
+model:
+  default: "claude-sonnet-5-5"
+  provider: "anthropic"
+
+agent:
+  bot_mode_protocol: true
+
+display:
+  pet:
+    enabled: true
+    slug: "pipe-wrench-robot"
+
+platform_toolsets:
+  cli:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - cronjob
+    - file
+    - terminal
+  telegram:
+    - clarify
+    - memory
+    - session_search
+    - skills
+    - todo
+    - cronjob
+    - file
+    - terminal
+
+approvals:
+  deny:
+    - "*--by humano*"
+    - "*--by=humano*"
+    - "*--by @humano*"
+    - "*call-dispatch*"
+    - "*hermes-delegar orquestrador*"
+    - "*hermes -p *"
+    - "*hermes chat*"
+    - "*--force*"
+    - "*push -f*"
+    - "*filter-branch*"
+    - "*reset --hard*"
+    - "*git*rebase*-i*"
+    - "*sed -i*skill-review*"
+    - "*sed -i*manutencao*"
+    - "*> *bin/skill-review*"
+    - "*nano*skill-review*"
+    - "*vim*skill-review*"
+    - "*cp *bin/skill-review*"
+    - "*nano*manutencao*"
+    - "*vim*manutencao*"
+    - "*code *souls/manutencao*"
+    - "*mv *skill-review*"
+    - "*rm *skill-review*"
+    - "*> *souls/manutencao*"
+    - "*call-dispatch*"
+    - "*hermes-task*move*"
+    - "*hermes-delegar*"
+    - "*tuple-api * post *"
+    - "*--by humano*"
+    - "*--by=humano*"
+    - "*kubectl *"
+    - "*helm *"
+    - "*terraform apply*"
+    - "*terraform destroy*"
+    - "*docker push*"
+    - "*npm publish*"
+    - "*gh pr merge*"
+    - "*gh release*"
+    - "*rm -rf /*"
+    - "*rm -rf ~*"
+
+telegram:
+  require_mention: true
+  exclusive_bot_mentions: true

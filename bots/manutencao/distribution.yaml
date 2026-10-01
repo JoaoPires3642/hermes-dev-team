@@ -1,0 +1,16 @@
+name: manutencao
+version: 0.1.0
+description: "Manutencao: dono da plataforma (hermes-dev-team + profiles desta maquina). Revisa o que os bots escrevem nas proprias skills, vigia o upstream do Hermes, propoe patch a partir de erro que repete e cuida da higiene. Unico bot com escrita no repo da plataforma."
+hermes_requires: ">=0.21.0"
+author: "Joao Pires"
+license: "proprietary"
+
+env_requires:
+  - name: HERMES_KIRO_ACP_COMMAND
+    description: "Binário que o provider kiro-acp executa (kiro-pool limita a 4 sessões)"
+    required: false
+    default: "kiro-pool"
+  - name: HERMES_KIRO_ACP_ARGS
+    description: "Argumentos do kiro-cli: agente Kiro deste bot"
+    required: false
+    default: "acp --agent hermes-manutencao"

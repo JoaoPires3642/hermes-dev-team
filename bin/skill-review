@@ -289,6 +289,22 @@ def cmd_aplicar(a):
     if not a.sim:
         print("\nnada feito. repita com --sim", file=sys.stderr)
         return USO
+    # A defesa que nao depende de shell nem de prompt: o @manutencao tem write_file e
+    # podia reescrever o proprio criterio. Aqui o commit RECUSA se o que esta para
+    # entrar toca as travas dele. Um revisor que reescreve a regra nao revisa nada --
+    # e ele vai, um dia, estar convencido de que a mudanca faz sentido.
+    intocaveis = ("bin/skill-review", "souls/manutencao", "bots/manutencao")
+    sujo = git("status", "--porcelain").stdout.splitlines()
+    proibidos = [l[3:].strip() for l in sujo
+                 if any(t in l.replace("\\", "/") for t in intocaveis)]
+    if proibidos:
+        print("skill-review: recusado — este commit tocaria as proprias travas:",
+              file=sys.stderr)
+        for f in proibidos:
+            print("  " + f, file=sys.stderr)
+        print("Essas mudancas sao de mao humana. Relate ao Joao.", file=sys.stderr)
+        return ERRO
+
     for d, _ in levadas:
         destino = Path(d["destino"])
         destino.parent.mkdir(parents=True, exist_ok=True)

@@ -11,7 +11,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALL_BOTS=(orquestrador po pm arquiteto techlead dev-front dev-back qa)
+ALL_BOTS=(orquestrador po pm arquiteto manutencao techlead dev-front dev-back qa)
 BOTS=("${@:-${ALL_BOTS[@]}}")
 HERMES_ROOT="${HERMES_HOME:-$HOME/.hermes}"
 BIN_DIR="$HOME/.local/bin"
