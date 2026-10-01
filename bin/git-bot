@@ -23,6 +23,7 @@ O que ele se recusa a fazer, sempre: --force, --force-with-lease, --no-verify,
 arquivo que pareça segredo. Não há flag para desligar isso — é o ponto.
 """
 import argparse
+import hashlib
 import os
 import re
 import subprocess
@@ -112,6 +113,65 @@ def branch_atual(repo):
     return git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
 
 
+# ------------------------------------------------------------------ worktrees
+# Um working tree por repo e quatro devs em paralelo = brigam pela mesma árvore: a branch
+# trocada por baixo de quem estava nela, e o `git add -A` varrendo arquivo de outra tarefa
+# (OUVI-148/149/154, 01/10). Cada TAREFA tem o seu working tree; a árvore principal fica
+# para humano. Vive FORA do OneDrive: o sync disputa o .git e o node_modules de cada uma.
+KEY_OK = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def raiz_worktrees():
+    env = os.environ.get("HERMES_WORKTREES")
+    if env:
+        return Path(env)
+    base = os.environ.get("LOCALAPPDATA")
+    return (Path(base) / "hermes" / "worktrees") if base else Path.home() / ".hermes-worktrees"
+
+
+def repo_principal(repo):
+    """O repo de verdade, mesmo quando `repo` é um worktree (o .git dele é um arquivo)."""
+    comum = git(repo, "rev-parse", "--git-common-dir").stdout.strip()
+    comum = Path(comum) if Path(comum).is_absolute() else Path(repo) / comum
+    return comum.resolve().parent
+
+
+def pasta_worktree(principal, key):
+    rid = hashlib.sha1(str(principal).lower().encode()).hexdigest()[:6]
+    return raiz_worktrees() / ("%s-%s" % (principal.name, rid)) / key
+
+
+def worktrees_do_repo(principal):
+    """[(caminho, branch)] dos worktrees ligados ao repo, sem o principal."""
+    out, atual = [], {}
+    for linha in git(principal, "worktree", "list", "--porcelain").stdout.splitlines() + [""]:
+        if not linha.strip():
+            if atual.get("worktree") and Path(atual["worktree"]).resolve() != principal:
+                out.append((Path(atual["worktree"]), atual.get("branch", "").replace("refs/heads/", "")))
+            atual = {}
+        elif " " in linha:
+            k, v = linha.split(" ", 1)
+            atual[k] = v
+    return out
+
+
+def alvo_de_push(repo, br):
+    """Branch REMOTA para onde esta árvore publica. Em `compartilhada` a local é wt/<KEY> e o
+    destino é a do time, guardada no config da branch; nas demais é a própria."""
+    r = git(repo, "config", "--local", "branch.%s.hermes-alvo" % br, checar=False)
+    return r.stdout.strip() or br
+
+
+def dono_do_worktree(repo):
+    """KEY da tarefa dona desta árvore, ou None se não é um worktree de tarefa.
+    Pelo caminho: <raiz>/<repo>-<id>/<KEY>[/subpasta]."""
+    try:
+        rel = Path(repo).resolve().relative_to(raiz_worktrees().resolve())
+    except ValueError:
+        return None
+    return rel.parts[1] if len(rel.parts) >= 2 else None
+
+
 # --------------------------------------------------------------------- estado
 def cmd_estado(a):
     repo = conferir_repo(a.repo)
@@ -138,6 +198,74 @@ def cmd_estado(a):
 
 
 # ------------------------------------------------------------------- preparar
+def alinhar_com_remoto(arvore, nome):
+    """pull --rebase se a branch tem upstream e a árvore está limpa; conflito aborta e vira BLOCKED."""
+    if git(arvore, "rev-parse", "--abbrev-ref", "@{u}", checar=False).returncode:
+        return
+    if git(arvore, "status", "--porcelain").stdout.strip():
+        return    # trabalho em andamento do próprio dev: não mexe
+    r = git(arvore, "pull", "--rebase", checar=False)
+    if r.returncode:
+        conflitos = git(arvore, "diff", "--name-only", "--diff-filter=U", checar=False).stdout.strip()
+        git(arvore, "rebase", "--abort", checar=False)
+        fim(BLOCKED, "conflito ao alinhar '%s' com o remoto; rebase abortado, nada foi alterado. "
+                     "Arquivos: %s" % (nome, conflitos or "?"))
+
+
+def preparar_worktree(repo, a, destino):
+    """Um working tree por TAREFA, fora do repo principal. Idempotente: dev que morreu e voltou
+    recebe o mesmo caminho, com o trabalho dele dentro.
+
+    A mesma branch não pode estar em dois worktrees. Em `compartilhada` há uma branch do time e
+    N tarefas, então cada árvore usa uma local `wt/<KEY>` e publica na do time (alvo_de_push)."""
+    if not KEY_OK.fullmatch(a.key):
+        fim(USO, "--key '%s' inválida (só letras, números, ponto, hífen e sublinhado)" % a.key)
+    principal = repo_principal(repo)
+    pasta = pasta_worktree(principal, a.key)
+    local = destino if a.estrategia == "por-tarefa" else "wt/%s" % a.key
+    git(principal, "fetch", "--quiet", checar=False)
+
+    ligados = {p.resolve(): b for p, b in worktrees_do_repo(principal)}
+    if pasta.resolve() in ligados:
+        if ligados[pasta.resolve()] != local:
+            fim(BLOCKED, "o worktree de %s já existe em '%s' mas está na branch '%s', não em '%s'. "
+                         "Não vou trocar: há trabalho lá." % (a.key, pasta, ligados[pasta.resolve()], local))
+        alinhar_com_remoto(pasta, local)
+    elif pasta.exists():
+        fim(BLOCKED, "'%s' existe mas não é um worktree deste repo; remova à mão ou escolha outra "
+                     "raiz em HERMES_WORKTREES." % pasta)
+    else:
+        pasta.parent.mkdir(parents=True, exist_ok=True)
+        existe = git(principal, "rev-parse", "--verify", "--quiet", "refs/heads/" + local,
+                     checar=False).returncode == 0
+        remota = git(principal, "rev-parse", "--verify", "--quiet", "origin/" + destino,
+                     checar=False).returncode == 0
+        if existe:
+            cmd = ["worktree", "add", str(pasta), local]
+        elif remota:
+            cmd = ["worktree", "add", "-b", local, str(pasta), "origin/" + destino]
+        else:
+            # --no-track: sem isso a branch nova rastreia a BASE e o push dela viraria
+            # pull --rebase do develop + um `git push` que o git recusa (nome diferente).
+            cmd = ["worktree", "add", "--no-track", "-b", local, str(pasta), "origin/" + a.base]
+        r = git(principal, *cmd, checar=False)
+        if r.returncode:
+            fim(BLOCKED, "não consegui criar o worktree de %s:\n%s\n"
+                         "Se a branch '%s' está em uso na árvore principal, quem está nela precisa "
+                         "terminar (ou um humano liberar); não force." %
+                (a.key, (r.stderr or r.stdout).strip(), local))
+        alinhar_com_remoto(pasta, local)
+
+    git(pasta, "config", "--local", "branch.%s.hermes-alvo" % local, destino)
+    print("worktree: %s" % pasta)
+    dica = ""
+    if (pasta / "pnpm-lock.yaml").exists() and not (pasta / "node_modules").exists():
+        dica = " node_modules não existe aqui: pnpm install --offline --frozen-lockfile (store compartilhado)."
+    fim(OK, "worktree de %s pronto (branch '%s' → publica em '%s', identidade %s <%s>). "
+            "Trabalhe SÓ nesse caminho: edite os arquivos dentro dele e passe-o como <repo> a "
+            "commit e push.%s" % (a.key, local, destino, a.nome, a.email, dica))
+
+
 def cmd_preparar(a):
     repo = conferir_repo(a.repo)
     for campo, valor in (("--nome", a.nome), ("--email", a.email), ("--base", a.base)):
@@ -161,7 +289,10 @@ def cmd_preparar(a):
     if destino in BRANCHES_PROIBIDAS:
         fim(ERRO, "recusado: '%s' é branch protegida, bot não trabalha nela" % destino)
 
-    # GUARDA DE COLISÃO — antes de qualquer checkout.
+    if a.key:
+        preparar_worktree(repo, a, destino)    # não volta: termina com fim()
+
+    # GUARDA DE COLISÃO — o piso, para quem chega aqui sem --key (e portanto sem worktree).
     #
     # Há UM working tree por repo. Quando dois bots rodam em paralelo no mesmo
     # projeto, o segundo trocava a branch por baixo do primeiro: `git checkout`
@@ -225,6 +356,14 @@ def cmd_commit(a):
     if a.tipo not in TIPOS:
         fim(USO, "tipo inválido '%s' — use um de: %s" % (a.tipo, ", ".join(TIPOS)))
 
+    # Dentro de um worktree de tarefa, só a KEY dele. A árvore é da tarefa: um commit com outra
+    # `Refs:` aqui é exatamente a mistura que o worktree existe para impedir.
+    dono = dono_do_worktree(repo)
+    if dono and dono != a.key:
+        fim(ERRO, "recusado: esta árvore é do worktree de %s e o commit cita %s. Cada tarefa "
+                  "trabalha no próprio worktree; rode `git-bot preparar --key %s` e use o caminho "
+                  "que ele imprime." % (dono, a.key, a.key))
+
     desc = a.desc.strip().rstrip(".")
     if not desc:
         fim(USO, "--desc vazio")
@@ -273,6 +412,23 @@ def cmd_push(a):
         fim(USO, "árvore suja — commite antes de dar push")
 
     git(repo, "fetch", "--quiet", checar=False)
+    alvo = alvo_de_push(repo, br)
+    if alvo != br:
+        # compartilhada: árvore em wt/<KEY>, publica na branch do time. Rebase em cima dela
+        # antes de todo push e nunca force — a mesma regra, com o destino explícito.
+        if git(repo, "rev-parse", "--verify", "--quiet", "origin/" + alvo, checar=False).returncode == 0:
+            r = git(repo, "pull", "--rebase", "origin", alvo, checar=False)
+            if r.returncode:
+                conflitos = git(repo, "diff", "--name-only", "--diff-filter=U", checar=False).stdout.strip()
+                git(repo, "rebase", "--abort", checar=False)
+                fim(BLOCKED, "conflito no rebase — rebase abortado, nada foi enviado.\n"
+                             "Arquivos em conflito:\n  %s\n"
+                             "Regra do time: bot não resolve conflito de código alheio. "
+                             "Marque a issue como BLOCKED e avise o humano."
+                             % (conflitos.replace("\n", "\n  ") or "(não listados)"))
+        git(repo, "push", "origin", "HEAD:refs/heads/" + alvo)
+        sha = git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
+        fim(OK, "push de '%s' para '%s' feito (%s), sem force" % (br, alvo, sha))
     tem_up = git(repo, "rev-parse", "--abbrev-ref", "@{u}", checar=False).returncode == 0
 
     if tem_up:

@@ -347,6 +347,20 @@ def arquivos_da_tarefa(root, m):
             liquido = set()
         st = g("status", "--porcelain")
         liquido |= {l[3:].split(" -> ")[-1] for l in st.splitlines() if len(l) > 3}
+def worktree_da_tarefa(repo, key):
+    """Caminho do worktree que o `git-bot preparar --key` criou para esta tarefa, ou None.
+    Com worktree por tarefa o trabalho do dev NÃO está na árvore principal; olhar só lá faria o
+    DoD ver zero arquivos, e a árvore principal ainda carrega a sujeira das outras tarefas."""
+    saida = subprocess.run(["git", "-C", str(repo), "worktree", "list", "--porcelain"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA).stdout
+    for bloco in saida.split("\n\n"):
+        linhas = dict(l.split(" ", 1) for l in bloco.splitlines() if " " in l)
+        p = linhas.get("worktree")
+        if p and Path(p).name == key and Path(p).resolve() != Path(repo).resolve() and Path(p).is_dir():
+            return Path(p)
+    return None
+
+
         out |= {str(PurePosixPath(caminho) / f) for f in liquido}
     return sorted(out)
 
@@ -367,6 +381,7 @@ def fora_do_escopo(root, m, agente=None):
         return None  # sem escopo definido
     ruins = []
     for f in arquivos_da_tarefa(root, m):
+        repo = worktree_da_tarefa(repo, m["task_id"]) or repo
         alvo = PurePosixPath(f)
         # caminho literal (o que o @techlead grava) casa por igualdade; glob por
         # full_match. Antes só o glob era testado, então caminho exato = "fora".
