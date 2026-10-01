@@ -103,7 +103,6 @@ BOTS = {
         # daquele bot existir, e ela e 100% plataforma (pull, instalador, gateway, commit
         # no repo do time). Quem orquestra cliente nao instala a plataforma.
         "extra_skills": ["transcricao-crua", "orquestrar-rodadas-bots",
-                         "auditoria-plataforma-bots",
                          "onboarding-projeto-plataforma"],
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
@@ -178,10 +177,12 @@ BOTS = {
         # terminal: sem ele nao roda skill-review, git, doctor nem a suite.
         # cronjob: a rodada e diaria. Sem browser: revisao se faz no diff.
         "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
-        # veio do @orquestrador: a skill e 100% plataforma (pull, instalador,
-        # gateway, commit no repo da plataforma) e foi escrita antes deste bot
-        # existir. Trabalho de plataforma mora com quem e dono dela.
-        "extra_skills": ["instalar-plataforma-bots"],
+        # As duas vieram do @orquestrador, que as escreveu antes deste bot existir:
+        # instalar (pull, instalador, gateway, commit no repo do time) e auditar a
+        # plataforma (profiles, gateway_state, cron, helpers). Trabalho de plataforma
+        # mora com quem e dono dela. Quem levantou a segunda foi o `skill-review
+        # conferir`, que olha atribuicao parada em vez de diff.
+        "extra_skills": ["instalar-plataforma-bots", "auditoria-plataforma-bots"],
         "hermes_deny_extra": PLATAFORMA,
         "kiro_tools": ["read"],
         "kiro_allowed": ["read"],

@@ -126,11 +126,14 @@ escapa: o `SKILL.md` você lembra, a referência nova não.
 - **Helper que existe pode ainda assim falhar em toda chamada.** Antes de marcar um helper como
   presente, **rode o subcomando mais barato dele** (`states`, `--help`) e confira `exit 0`: no host
   Windows um wrapper que passa path MSYS (`/c/...`) a um interpretador nativo morre em todos os
-  projetos de uma vez. Detalhe e conserto na skill `onboarding-projeto-plataforma`, referência
-  sobre a fronteira MSYS ↔ nativo. "Existe no PATH" não é evidência de que funciona.
-- **Auditoria de UMA pasta de projeto tem skill própria.** Se a pergunta é sobre os arquivos de um
-  projeto (`AGENTS.md`, `tuple.env`, `steering`, `tasks`), use `onboarding-projeto-plataforma`;
-  esta skill é para a plataforma (profiles, gateway, cron, helpers).
+  projetos de uma vez. A fronteira MSYS ↔ nativo está detalhada em
+  `onboarding-projeto-plataforma/references/windows-msys-nativo.md`, que mora com o
+  @orquestrador — leia o arquivo direto no repo, não espere ter a skill carregada. "Existe no PATH" não é evidência de que funciona.
+- **Auditoria de UMA pasta de projeto não é sua.** Se a pergunta é sobre os arquivos de um
+  projeto (`AGENTS.md`, `tuple.env`, `steering`, `tasks`), isso é do **@orquestrador**, que
+  tem a `onboarding-projeto-plataforma` — você não tem essa skill e não deve improvisá-la.
+  Esta aqui é para a **plataforma**: profiles, gateway, cron, helpers.
+  Diga de quem é e passe adiante; auditar pasta de cliente te tira do teu papel.
 - **Rodar o instalador da plataforma de dentro de uma sessão de bot envenena os caminhos.** O
   Hermes exporta `HERMES_HOME=<root>/profiles/<bot>`, então o script escreve o `.env` do time
   dentro do profile do bot e procura `<profile>/profiles/<bot>`. Suba para a pasta acima de
@@ -139,8 +142,9 @@ escapa: o `SKILL.md` você lembra, a referência nova não.
   meio deixando na tela um `==> Bot @<nome>` que parece progresso. Confira o `exit` **e** a
   última linha; depois confira `profiles/<bot>/config.yaml` em disco, que é a única prova de
   que a mudança chegou. Instalador que "rodou" sem trocar arquivo nenhum é o sintoma padrão
-  de uma travessia MSYS → nativo errada: detalhe e conserto na skill
-  `onboarding-projeto-plataforma`, referência sobre a fronteira MSYS ↔ nativo.
+  de uma travessia MSYS → nativo errada: o detalhe está em
+  `extra-skills/onboarding-projeto-plataforma/references/windows-msys-nativo.md`
+  no repo — a skill é do @orquestrador, mas o arquivo você lê.
 - **Antes de declarar um comando proibido, leia os padrões de `approvals.deny` do profile.**
   Eles casam **substring do comando literal**, não intenção: um deny de `*hermes -p *` não
   proíbe `hermes gateway`, e um deny qualquer dispara se a palavra aparecer dentro de um
