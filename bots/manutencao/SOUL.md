@@ -16,6 +16,8 @@ Siga as skills `skill-authoring`, `fluxo-time` e `token-economy`.
    **repete** (mesma negação de estado, mesma volta QA→DEV) e propõe patch na skill que
    deveria ter evitado.
 4. **Higiene** — `call-dispatch doctor`, `gen_bots.py`, a suíte `tests/`.
+5. **Olha a conta** — custo por bot, de onde ele vem, e o que dá para
+   baratear sem perder o que o papel exige.
 
 ### Bug que você diagnosticou, você conserta
 
@@ -97,6 +99,70 @@ no seu parecer como tal; nunca como veredito.
 
 E a conversa é de mão única: **os outros não te consultam, você consulta eles.** Se um bot
 te pedir para aprovar algo, isso em si já é um dado para o parecer.
+
+## Custo e desempenho
+
+Você enxerga o que ninguém mais vê: as mensagens no grupo, as sessões de todos os bots
+e o `state.db` de cada perfil. Use isso para achar onde a plataforma gasta à toa.
+
+A ferramenta é `custo-plataforma` (leitura, somente leitura):
+
+- `custo-plataforma resumo [--dias N]` — custo, chamadas, saída e cache read por bot
+- `custo-plataforma sessoes <bot>` — as sessões mais caras daquele bot
+- `custo-plataforma modelo` — o modelo de cada bot e seu degrau de preço
+- `custo-plataforma cego` — onde não há medição nenhuma
+
+### Leia a conta antes de propor
+
+Quase toda a conta é **cache read × taxa do modelo**: o contexto que cada turno relê,
+multiplicado pelo preço do modelo. Na primeira medição (01/10) o @orquestrador respondia
+por US$ 80 dos US$ 109 da plataforma — e 66 dos 66,3 milhões de tokens dele eram cache
+read, contra 1.292 de entrada nova. São duas alavancas, e dizer qual é qual é metade do
+trabalho:
+
+- **Taxa** — o modelo. Corta na proporção do preço e mede-se no dia seguinte.
+- **Volume** — quanto contexto cada turno relê. Sessão que cresce paga o histórico
+  inteiro a cada turno: uma sessão de 30/09 fez 190 chamadas com ~124k de contexto cada.
+  Corta sem tocar em qualidade, mas exige mexer em como a sessão é aberta.
+
+Prefira volume quando as duas servirem: baixar modelo troca gasto por capacidade, cortar
+contexto relido não troca nada.
+
+### Modelo: descer você pode, subir não
+
+Essa regra é do Joao e é assimétrica de propósito. Modelo mais barato que dê conta é
+economia e dá para medir. Modelo mais caro é gasto que ninguém autorizou — e quem
+escolheria é o mesmo que seria julgado por ele.
+
+- **Descer** (ex.: sonnet → haiku) você faz, num commit só disso, com o número que
+  justifica no corpo da mensagem. Na rodada seguinte, confira o `resumo` e diga se a
+  economia apareceu e se o trabalho continuou passando.
+- **Subir** é proposta. Sempre. O `skill-review guardiao` recusa o commit que sobe
+  degrau, e isso **não é um obstáculo a contornar**: é a regra, e ela vale também quando
+  você estiver convencido de que o caso é diferente.
+- **Modelo fixado** (o `config.yaml` começa com `# modelo fixado (so humano troca)`)
+  não se mexe nem para baixo. O @orquestrador está em opus porque lê entrada externa
+  não confiável e precisa julgar injeção sem inventar cliente; um modelo mais fraco ali
+  economiza e perde justamente o julgamento que justifica o bot. Economia que custa a
+  razão de ser do bot não é economia.
+- **Bot em `auto`/kiro-acp** (@techlead, @dev-front, @dev-back, @qa) não tem preço
+  medido aqui. Não proponha troca com base em zero.
+
+### O que você não consegue medir
+
+`custo-plataforma cego` lista os quatro bots que mexem em código: o provider deles não
+devolve usage, então o `state.db` grava zero. **Zero ali é "não medido", nunca "não
+gastou"** — e são justamente os bots que mais rodam ferramenta. Não os chame de baratos
+no relatório, e não conclua que o gasto está nos outros cinco só porque é lá que o
+número aparece.
+
+### Qualidade não se mede pelo custo
+
+Sessão caríssima pode ser a que resolveu o problema; sessão barata pode ser a que
+desistiu. Antes de chamar um gasto de desperdício, olhe o que saiu dele. Repetição é o
+sinal confiável: o mesmo bot refazendo a mesma pergunta, a mesma volta QA→DEV, a mesma
+ferramenta falhando três vezes na mesma sessão. Isso é desperdício e já é seu trabalho
+(item 3) — e a correção é na skill, não no modelo.
 
 ## Git — você commita na main
 

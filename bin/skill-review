@@ -7,6 +7,7 @@
     skill-review quarentena <bot> <skill> [--motivo ...]
     skill-review pendentes              # o que espera decisao humana
     skill-review guardiao [--forcar]    # barra commit que apaga trava de SOUL/shared
+                                        # e commit que sobe o modelo de um bot
 
 Por que existe
 --------------
@@ -67,6 +68,15 @@ PERMISSAO = re.compile(
 # Reconhece pela forma, nao pelo conteudo — o ponto e justamente nao depender de
 # entender o que o glob proibe.
 _ENTRADA_DENY = re.compile(r"^\s*-\s+.*\*")
+
+# Degrau de PRECO do modelo, nao de qualidade. Medido em 01/10 pelo custo por milhao
+# de token relido: haiku 0,30 · sonnet 0,40-0,65 · opus 1,22. Serve para o guardiao
+# saber o que e descer e o que e subir.
+DEGRAU = {"haiku": 1, "fable": 2, "sonnet": 2, "opus": 3}
+_MODELO = re.compile(r"claude-[a-z]+-[0-9][a-z0-9-]*")
+# Escrito pelo gen_bots.py dentro do config.yaml quando o modelo foi escolhido pelo
+# que o papel exige, nao pelo preco.
+_FIXO = "modelo fixado (so humano troca)"
 
 TRAVA = re.compile(
     # Radicais, nao formas exatas: a primeira versao tinha "aprove" e deixou passar
@@ -322,7 +332,11 @@ def cmd_aplicar(a):
     # podia reescrever o proprio criterio. Aqui o commit RECUSA se o que esta para
     # entrar toca as travas dele. Um revisor que reescreve a regra nao revisa nada --
     # e ele vai, um dia, estar convencido de que a mudanca faz sentido.
-    intocaveis = ("bin/skill-review", "souls/manutencao", "bots/manutencao")
+    # `custo-plataforma` entra aqui porque e a regua com que ele justifica proposta
+    # de economia. Revisor que ajusta a propria regua prova o que quiser.
+    intocaveis = ("bin/skill-review", "bin/custo-plataforma",
+                  "souls/manutencao", "bots/manutencao",
+                  "prompts/manutencao-rodada")
     sujo = git("status", "--porcelain").stdout.splitlines()
     proibidos = [l[3:].strip() for l in sujo
                  if any(t in l.replace("\\", "/") for t in intocaveis)]
@@ -404,6 +418,93 @@ def _diff_staged(caminhos) -> dict:
     return fora
 
 
+def _degrau(m):
+    """Degrau de preco de um id de modelo, ou None se nao reconhecido."""
+    return next((v for k, v in DEGRAU.items() if k in m), None)
+
+
+def _modelos_de(arq, texto):
+    """{bot: (modelo, fixo)} declarado num arquivo, seja config.yaml ou o gerador.
+
+    Compara-se o ESTADO dos dois lados, nunca as linhas do diff. A primeira versao
+    somava os modelos que saiam e os que entravam em conjuntos e comparava o maior de
+    cada lado — com os nove bots no mesmo `gen_bots.py`, descer o @po de sonnet para
+    haiku empatava o maior-que-saiu em opus e escondia o @pm subindo de haiku para opus
+    no mesmo commit. Pareado por bot isso nao acontece.
+
+    `fixo` tambem e por bot, e por isso tem de sair daqui: procurar a marca no arquivo
+    inteiro funciona no config.yaml (um bot por arquivo) e erra feio no gerador, que
+    carrega a marca dentro do proprio template e marcaria os nove.
+    """
+    a = arq.replace("\\", "/")
+    if a.endswith("config.yaml"):
+        bot = a.split("/")[-2] if "/" in a else a
+        m = re.search(r'^\s*default:\s*["\']?([^"\'\s]+)', texto, re.M)
+        return {bot: (m.group(1), _FIXO in texto)} if m else {}
+    if a.endswith("scripts/gen_bots.py"):
+        # Varre na ordem: cada `"<bot>": {` abre um bloco, e o primeiro `"model"` depois
+        # dele e o daquele bot. Nao usa ast porque o gerador tambem e editado por bot e
+        # um arquivo em estado intermediario nao pode derrubar o guardiao.
+        fora, atual = {}, None
+        for l in texto.splitlines():
+            b = re.match(r'\s{4}"([a-z-]+)":\s*\{', l)
+            if b:
+                atual = b.group(1)
+                continue
+            if not atual:
+                continue
+            m = re.search(r'"model":\s*"([^"]+)"', l)
+            if m and atual not in fora:
+                fora[atual] = [m.group(1), False]
+            elif '"model_fixo"' in l and atual in fora:
+                fora[atual][1] = True
+        return {k: tuple(v) for k, v in fora.items()}
+    return {}
+
+
+def _catraca_modelo(arq, antes, depois):
+    """Troca de modelo: descer pode, subir nao. Devolve os motivos para NEGAR.
+
+    A regra vem do humano e e assimetrica de proposito: modelo mais barato que der
+    conta e economia, e da para medir no dia seguinte; modelo mais caro e gasto que
+    ninguem autorizou, decidido pelo mesmo bot que seria julgado por ele.
+    """
+    de, para = _modelos_de(arq, antes), _modelos_de(arq, depois)
+    motivos = []
+    for bot, (novo_m, fixo) in sorted(para.items()):
+        velho = de.get(bot, (None, False))[0]
+        if velho == novo_m:
+            continue
+        if fixo or de.get(bot, (None, False))[1]:
+            # Nem descer passa: `model_fixo` diz que o modelo esta ali pelo que o papel
+            # exige, nao pelo preco. O @orquestrador le entrada externa nao confiavel;
+            # modelo mais fraco ali economiza e perde justamente o julgamento que
+            # justifica o bot existir.
+            motivos.append("@%s tem modelo fixado por motivo de papel, nao de preco "
+                           "(%s -> %s)" % (bot, velho or "nenhum", novo_m))
+            continue
+        d_novo, d_velho = _degrau(novo_m), _degrau(velho or "")
+        if d_velho is None:
+            # Sem degrau do lado de onde se sai: ou o bot nao declarava modelo, ou estava
+            # em `auto` (kiro-acp), cuja conta nem passa pelo state.db
+            # (`custo-plataforma cego`). Nos dois casos nao e "descer de nada" — e mudar
+            # de conta, com preco que ninguem comparou. Quem decide isso e o humano.
+            motivos.append("@%s sai de %s, que nao tem preco medido aqui, para %s — "
+                           "trocar de conta e decisao sua"
+                           % (bot, velho or "nenhum modelo declarado", novo_m))
+            continue
+        if d_novo is None:
+            # Falha fechada: modelo fora da tabela pode ser mais caro que o atual, e
+            # degrau faltando nao e autorizacao para subir.
+            motivos.append("@%s vai para um modelo que a tabela de degraus nao conhece "
+                           "(%s) — acrescente o degrau antes de trocar" % (bot, novo_m))
+            continue
+        if d_novo > d_velho:
+            motivos.append("@%s sobe o degrau do modelo (%s -> %s)"
+                           % (bot, velho, novo_m))
+    return motivos
+
+
 def cmd_guardiao(a):
     """Barra no COMMIT o que mexe em autoridade: SOUL e shared-skill.
 
@@ -416,13 +517,18 @@ def cmd_guardiao(a):
     passar) quando so acrescenta texto que fala de permissao: restringir-se e legitimo,
     e barrar isso mataria justamente as boas mudancas.
     """
-    alvos = ["souls/", "bots/", "shared-skills/"]
+    alvos = ["souls/", "bots/", "shared-skills/", "scripts/gen_bots.py"]
     mudancas = _diff_staged(alvos)
     if not mudancas:
         return OK
     negar, avisar = [], []
     for arq, (saiu, entrou) in mudancas.items():
         padrao = arq.replace("\\", "/").endswith("config.yaml")
+        if padrao or arq.replace("\\", "/").endswith("scripts/gen_bots.py"):
+            antes = git("show", "HEAD:%s" % arq, check=False).stdout
+            depois = git("show", ":%s" % arq, check=False).stdout
+            for m in _catraca_modelo(arq, antes, depois):
+                negar.append((arq, m))
         for l in saiu:
             # `config.yaml` guarda a autoridade em forma de maquina, nao de prosa: uma
             # linha de deny que sai afrouxa permissao sem dizer "nao" em lugar nenhum,

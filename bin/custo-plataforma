@@ -1,0 +1,278 @@
+#!/usr/bin/env python
+"""custo-plataforma — o que cada bot gastou, de onde veio o gasto, e o que dá para mexer.
+
+    custo-plataforma resumo [--dias N]      # por bot: custo, chamadas, cache
+    custo-plataforma sessoes <bot> [-n N]   # as sessões mais caras daquele bot
+    custo-plataforma modelo                 # modelo de cada bot vs. o que ele faz
+    custo-plataforma cego                   # onde não há medição nenhuma
+
+Por que existe
+--------------
+Sem numero, "diminuir o modelo" e chute — e chute as vezes acerta, as vezes troca
+qualidade por nada. Na primeira medicao (01/10, US$ 109 no total) o custo nao estava
+distribuido: o @orquestrador respondia por US$ 80 e o @pm por US$ 3,53.
+
+A conta se explica quase inteira por uma linha: **cache read x taxa do modelo**. O
+@orquestrador releu 66 milhoes de tokens de contexto contra 1.292 de entrada nova; a
+saida dele (559k) custa pouco em comparacao. Dividindo custo por cache read sai o preco
+efetivo por milhao relido: opus-5 1,22 · sonnet-5-5 0,40 a 0,65 · haiku-4-5 0,30.
+
+Disso saem duas alavancas, e vale saber qual e qual antes de mexer:
+
+- **Taxa** (o modelo). Para o @orquestrador, opus -> sonnet corta ~3x: US$ 80 -> ~US$ 27.
+  E a maior economia unica que existe hoje na plataforma.
+- **Volume** (quanto contexto cada turno rele). O gasto dele concentra em poucas sessoes
+  longas: uma sessao de 30/09 fez 190 chamadas com 23,5M de cache read — ~124k de
+  contexto por chamada. Sessao que cresce e paga o contexto inteiro a cada turno.
+
+Cortar taxa e facil e mede-se na hora; cortar volume exige mexer em como a sessao e
+aberta. Mas taxa compra-se com qualidade, e e por isso que descer modelo nao e decisao
+solta: o @orquestrador esta em opus porque le entrada externa nao confiavel e precisa
+julgar injecao sem inventar cliente — motivo registrado no `gen_bots.py`. Onde ha motivo
+registrado, a troca e proposta ao humano, nao patch.
+
+De onde vem o dado
+------------------
+`state.db` de cada perfil, tabela `session_model_usage`, aberta **somente leitura**: é o
+banco de um processo que está rodando. O Hermes dobra o `response.usage` ali por sessão
+e por modelo, com `estimated_cost_usd`.
+
+O que o dado NÃO cobre
+----------------------
+Bot em `kiro-acp` (provider da conta da empresa) grava `input_tokens=0`,
+`estimated_cost_usd=0` e `cost_status='unknown'`: o ACP não devolve usage. Hoje são
+@techlead, @dev-front, @dev-back e @qa — ou seja, **os quatro que mexem em código são
+invisíveis aqui**. Zero nessa tabela significa "não medido", nunca "não gastou", e o
+`cego` existe para que esse zero não seja lido como economia. Linha com
+`cost_status='unknown'` mas tokens > 0 é contabilidade incompleta do provider, não
+sessão barata.
+"""
+import argparse
+import os
+import sqlite3
+import sys
+import time
+
+# O console do Windows abre em cp1252: sem isto um acento ou uma seta derruba o
+# print no meio do relatorio, e o bot le isso como ferramenta quebrada.
+for _f in (sys.stdout, sys.stderr):
+    try:
+        _f.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+OK, ERRO, USO = 0, 1, 2
+
+BOTS = ("orquestrador", "po", "pm", "arquiteto", "manutencao",
+        "techlead", "dev-front", "dev-back", "qa")
+
+# Degrau de preço, não de qualidade. Serve para o guardião saber o que é descer e o que
+# é subir; modelo que não está aqui é desconhecido e trata-se como subida (falha fechada).
+DEGRAU = {"haiku": 1, "fable": 2, "sonnet": 2, "opus": 3}
+
+
+def raiz_perfis():
+    base = os.environ.get("HERMES_HOME") or os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "hermes")
+    return os.path.join(base, "profiles")
+
+
+def abrir(bot):
+    """Conexão somente leitura, ou None se o perfil não existe/não abre."""
+    p = os.path.join(raiz_perfis(), bot, "state.db")
+    if not os.path.exists(p):
+        return None
+    try:
+        # uri=True + mode=ro: o gateway pode estar escrevendo. Sem isto o sqlite criaria
+        # um banco vazio se o caminho estivesse errado, e o relatório sairia zerado
+        # sem avisar — zero silencioso é o erro que este script existe para não cometer.
+        return sqlite3.connect("file:%s?mode=ro" % p.replace(os.sep, "/"), uri=True,
+                               timeout=5)
+    except sqlite3.Error:
+        return None
+
+
+def uso(bot, desde=None):
+    c = abrir(bot)
+    if c is None:
+        return None
+    onde, args = "", []
+    if desde:
+        onde, args = " where coalesce(last_seen, 0) >= ?", [desde]
+    try:
+        return c.execute("""
+            select model, billing_provider, cost_status,
+                   count(*)                     as sessoes,
+                   sum(api_call_count)          as chamadas,
+                   sum(input_tokens)            as entrada,
+                   sum(output_tokens)           as saida,
+                   sum(cache_read_tokens)       as cache,
+                   sum(estimated_cost_usd)      as custo
+              from session_model_usage%s
+             group by 1, 2, 3
+             order by custo desc, chamadas desc""" % onde, args).fetchall()
+    except sqlite3.Error as e:
+        print("  %s: state.db não respondeu (%s)" % (bot, e), file=sys.stderr)
+        return None
+
+
+def mil(n):
+    if n is None:
+        return "—"
+    for u, d in ((1e9, "G"), (1e6, "M"), (1e3, "k")):
+        if n >= u:
+            return "%.1f%s" % (n / u, d)
+    return str(int(n))
+
+
+def cmd_resumo(a):
+    desde = time.time() - a.dias * 86400 if a.dias else None
+    print("custo estimado por bot%s" % (" (últimos %d dias)" % a.dias if a.dias else ""))
+    print()
+    print("%-13s %-20s %8s %7s %8s %8s %9s" %
+          ("bot", "modelo", "US$", "sessões", "chamadas", "saída", "cache rd"))
+    print("-" * 80)
+    total, cegos = 0.0, []
+    for b in BOTS:
+        linhas = uso(b, desde)
+        if linhas is None:
+            print("%-13s %s" % (b, "(sem perfil instalado)"))
+            continue
+        if not linhas:
+            print("%-13s %s" % (b, "(nenhuma sessão no período)"))
+            continue
+        for m, prov, status, ses, cham, ent, sai, cache, custo in linhas:
+            custo = custo or 0.0
+            total += custo
+            marca = ""
+            if (cham or 0) > 0 and not (ent or sai or cache):
+                marca = "  <- não medido"
+                cegos.append((b, m, prov))
+            elif status == "unknown" and (ent or cache):
+                marca = "  <- custo incompleto"
+            print("%-13s %-20s %8.2f %7d %8d %8s %9s%s" %
+                  (b, m, custo, ses, cham or 0, mil(sai), mil(cache), marca))
+    print("-" * 80)
+    print("%-13s %-20s %8.2f" % ("total medido", "", total))
+    if cegos:
+        print()
+        print("%d linha(s) sem medição — veja `custo-plataforma cego`." % len(cegos))
+    print()
+    print("Cache read alto com entrada baixa = contexto relido, não trabalho novo.")
+    print("Antes de trocar modelo, veja `custo-plataforma sessoes <bot>`: se o gasto está")
+    print("em uma sessão eterna, o modelo não é a causa.")
+    return OK
+
+
+def cmd_sessoes(a):
+    c = abrir(a.bot)
+    if c is None:
+        print("perfil '%s' não tem state.db em %s" % (a.bot, raiz_perfis()),
+              file=sys.stderr)
+        return ERRO
+    try:
+        linhas = c.execute("""
+            select u.session_id, s.title, u.model,
+                   u.api_call_count, u.output_tokens, u.cache_read_tokens,
+                   u.estimated_cost_usd, u.first_seen, u.last_seen
+              from session_model_usage u
+              left join sessions s on s.id = u.session_id
+             order by u.estimated_cost_usd desc, u.api_call_count desc
+             limit ?""", [a.n]).fetchall()
+    except sqlite3.Error as e:
+        print("state.db não respondeu (%s)" % e, file=sys.stderr)
+        return ERRO
+    if not linhas:
+        print("sem sessões registradas para @%s" % a.bot)
+        return OK
+    print("@%s — sessões mais caras" % a.bot)
+    print()
+    for sid, tit, m, cham, sai, cache, custo, ini, fim in linhas:
+        dias = ""
+        if ini and fim and fim - ini > 86400:
+            # Sessão que atravessa dias é a assinatura de conversa eterna: o custo dela
+            # não é de um trabalho, é de reler o histórico de todos os dias anteriores.
+            dias = "  (viva há %.0f dias)" % ((fim - ini) / 86400)
+        print("  US$ %7.3f  %-28s %s" % (custo or 0.0, (tit or "—")[:28], m))
+        print("            %s · %d chamadas · saída %s · cache rd %s%s" %
+              (sid, cham or 0, mil(sai), mil(cache), dias))
+    return OK
+
+
+def cmd_modelo(_a):
+    """Modelo de cada bot, lido da config instalada — a que está valendo."""
+    print("%-13s %-22s %-10s %s" % ("bot", "modelo", "degrau", "provider"))
+    print("-" * 64)
+    for b in BOTS:
+        cfg = os.path.join(raiz_perfis(), b, "config.yaml")
+        m, prov = "(sem config)", ""
+        if os.path.exists(cfg):
+            dentro = False
+            for l in open(cfg, encoding="utf-8", errors="replace"):
+                if l.startswith("model:"):
+                    dentro = True
+                    continue
+                if dentro:
+                    if l.startswith((" ", "\t")):
+                        k, _, v = l.strip().partition(":")
+                        v = v.strip().strip('"\'')
+                        if k == "default":
+                            m = v
+                        elif k == "provider":
+                            prov = v
+                    else:
+                        break
+        d = next((v for k, v in DEGRAU.items() if k in m), None)
+        print("%-13s %-22s %-10s %s" % (b, m, d if d else "—", prov))
+    print()
+    print("Degrau 1 é o mais barato. Descer é decisão do @manutencao; subir é sua —")
+    print("o `skill-review guardiao` recusa o commit que sobe.")
+    return OK
+
+
+def cmd_cego(_a):
+    print("onde não há medição")
+    print()
+    achou = False
+    for b in BOTS:
+        linhas = uso(b, None)
+        if not linhas:
+            continue
+        for m, prov, status, ses, cham, ent, sai, cache, custo in linhas:
+            if (cham or 0) > 0 and not (ent or sai or cache):
+                achou = True
+                print("  @%-12s %-16s provider %-12s %d sessões, %d chamadas" %
+                      (b, m, prov or "—", ses, cham or 0))
+    if not achou:
+        print("  (nenhuma — toda sessão registrada tem tokens)")
+        return OK
+    print()
+    print("Esses bots rodam em provider que não devolve usage, então zero aqui quer dizer")
+    print("'não medido', não 'não gastou'. Não proponha economia com base neles, e não")
+    print("os chame de baratos num relatório: a conta existe, só não passa por aqui.")
+    return OK
+
+
+def main():
+    p = argparse.ArgumentParser(prog="custo-plataforma",
+                                description=__doc__.splitlines()[0])
+    s = p.add_subparsers(dest="cmd", required=True)
+
+    r = s.add_parser("resumo")
+    r.add_argument("--dias", type=int, default=0, help="só sessões ativas nos últimos N dias")
+    r.set_defaults(f=cmd_resumo)
+
+    q = s.add_parser("sessoes")
+    q.add_argument("bot")
+    q.add_argument("-n", type=int, default=8)
+    q.set_defaults(f=cmd_sessoes)
+
+    s.add_parser("modelo").set_defaults(f=cmd_modelo)
+    s.add_parser("cego").set_defaults(f=cmd_cego)
+
+    a = p.parse_args()
+    sys.exit(a.f(a))
+
+
+if __name__ == "__main__":
+    main()

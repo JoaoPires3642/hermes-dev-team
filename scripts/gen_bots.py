@@ -86,6 +86,9 @@ PLATAFORMA = [
     "*sed -i*skill-review*", "*sed -i*manutencao*", "*> *bin/skill-review*",
     "*nano*skill-review*", "*vim*skill-review*", "*cp *bin/skill-review*",
     "*nano*manutencao*", "*vim*manutencao*", "*code *souls/manutencao*",
+    "*sed -i*custo-plataforma*", "*> *bin/custo-plataforma*",
+    "*cp *bin/custo-plataforma*", "*rm *custo-plataforma*",
+    "*sed -i*manutencao-rodada*", "*> *manutencao-rodada*",
     "*mv *skill-review*", "*rm *skill-review*", "*> *souls/manutencao*",
     # Trabalho de cliente nao e dele. `call-dispatch doctor` e a excecao e fica FORA
     # da lista: e leitura, confere a instalacao inteira, e esta no prompt da rodada
@@ -105,7 +108,8 @@ BASE_TOOLS = ["clarify", "memory", "session_search", "skills", "todo"]
 
 BOTS = {
     "orquestrador": {
-        "model": "claude-opus-5", "provider": "anthropic",  # le entrada externa nao confiavel: precisa julgar injecao e nao inventar cliente
+        "model": "claude-opus-5", "provider": "anthropic",
+        "model_fixo": "le entrada externa nao confiavel: julgar injecao sem inventar cliente",
         "desc": "Porta de entrada: numa sessão por call (aberta pelo call-dispatch), entende a conversa com o cliente, escreve o resumo e passa ao @po. No Telegram, orienta e aponta os comandos dos gates.",
         "pet": "octopus",
         # escritas pelo proprio @orquestrador operando hoje, revisadas linha a linha antes
@@ -336,6 +340,12 @@ browser:
     # não confiável, e o @pm faz trabalho quase mecânico que não paga modelo caro.
     modelo = b.get("model", "auto")
     provedor = b.get("provider", "kiro-acp")
+    # O motivo do modelo vai para DENTRO do config.yaml, nao fica so aqui. O
+    # `skill-review guardiao` le o arquivo gerado, nao este script: so assim ele
+    # consegue distinguir "modelo escolhido por preco" de "modelo escolhido porque
+    # o papel exige julgamento", e recusar a troca do segundo mesmo sendo para baixo.
+    fixo = b.get("model_fixo")
+    nota_modelo = ("# modelo fixado (so humano troca): %s\n" % fixo) if fixo else ""
     # o plugin dos gates só no @orquestrador: é o Telegram dele que fala com o humano
     plugins = '\nplugins:\n  enabled:\n    - hermes-gates\n' if name == "orquestrador" else ""
     # No grupo do Telegram so o @orquestrador responde mensagem sem @: sem isto os tres
@@ -346,7 +356,7 @@ browser:
     telegram = (f"\ntelegram:\n  require_mention: {responde_tudo}\n"
                 "  exclusive_bot_mentions: true\n")
     (d / "config.yaml").write_text(f"""# Bot @{name} — gerado por scripts/gen_bots.py
-model:
+{nota_modelo}model:
   default: "{modelo}"
   provider: "{provedor}"
 
