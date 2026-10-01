@@ -115,6 +115,12 @@ call-dispatch ──/aprovar──▶ @pm: cria as issues no TUPLE + `hermes-tas
 último dev a entregar (estado virou TESTING) ──▶ @qa ──▶ CHANGES_REQUESTED ──▶ dev · ou AWAITING_REVIEW ──▶ GATE 3
 ```
 
+**Call sem trabalho** (só andamento, explicação, decisão já tomada): o @orquestrador (ou o @po,
+se só perceber ao montar a proposta) fecha a call em `TRIAGED → CLOSED` com
+`sem_trabalho=<por quê>` e `memoria=<arquivo em memory/>`. Não há GATE 1 nem issue; o humano
+recebe um aviso com o motivo, porque foi um bot que decidiu. Qualquer pedido na call, mesmo
+pequeno, a torna trabalho: na dúvida, segue o caminho normal.
+
 ### `message_agent` — só recado curto
 
 `message_agent` entrega na `Bot Chat` do colega: **uma** sessão, eterna, na home

@@ -329,10 +329,16 @@ TRIAGEM = """# Handoff 00 · {cid} · dispatcher → @orquestrador
    quem, decisões tomadas, **o que o cliente pediu** (escopo, em linguagem de negócio),
    prazos, dúvidas que só o humano responde e ⚠️ trechos suspeitos.
    **Não quebre em story/task nem estime horas** — isso é do @po.
+   Primeira linha do resumo: `Natureza: trabalho | informativo | misto`.
 3. Mova: `hermes-task move "{projeto}" {cid} TRIAGED --by orquestrador --ev resumo=.hermes/tasks/{cid}/resumo.md`
 4. Escreva `.hermes/tasks/{cid}/handoffs/01-orquestrador-para-po.md` (o que o @po precisa
    saber que não está no resumo, em poucas linhas) e chame:
    `hermes-delegar po "{projeto}" {cid} "{projeto}/.hermes/tasks/{cid}/handoffs/01-orquestrador-para-po.md"`
+
+**Natureza `informativo`** (só andamento/explicação, nenhum pedido): pule o passo 4. Guarde
+o que vale lembrar em `memory/AAAA-MM-<assunto>.md` do projeto e feche com
+`hermes-task move "{projeto}" {cid} CLOSED --by orquestrador --ev sem_trabalho="<por quê>" --ev memoria=<arquivo>`.
+Qualquer pedido, por menor que seja, torna a call `trabalho` ou `misto`: na dúvida, siga o passo 4.
 
 **Não faça:** criar issue no TUPLE, escrever a proposta, mandar mensagem ao humano. O
 @po escreve a proposta e o GATE 1 sai sozinho quando ele mover para AWAITING_APPROVAL.

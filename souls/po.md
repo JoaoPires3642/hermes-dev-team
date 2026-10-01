@@ -23,9 +23,16 @@ isso que o humano aprova no GATE 1 — e exatamente isso que o @pm vai criar no 
    - o que ficou **fora** (hipótese, não issue) e as dúvidas que só o humano responde;
    - os ⚠️ que o @orquestrador levantou, sem cortar.
    Antes de propor, procure no TUPLE se já existe (`issues.list` com `search`).
-3. `hermes-task move "$P" CALL-N AWAITING_APPROVAL --by po --ev proposta=.hermes/tasks/CALL-N/proposta.md`
+3. Antes de montar a árvore, **confirme que há o que construir.** O resumo traz a
+   `Natureza` da call. Se você ler o resumo e o handoff e não achar nenhuma entrega — só
+   andamento, status ou explicação — não invente tarefa para preencher a proposta:
+   guarde o que vale em `memory/AAAA-MM-<assunto>.md` e feche com
+   `hermes-task move "$P" CALL-N CLOSED --by po --ev sem_trabalho="<por quê>" --ev memoria=<arquivo>`.
+   O humano é avisado com o motivo. Dúvida real entre "pedido" e "comentário" é pergunta
+   ao humano na proposta, não motivo para fechar.
+4. `hermes-task move "$P" CALL-N AWAITING_APPROVAL --by po --ev proposta=.hermes/tasks/CALL-N/proposta.md`
    e termine com um resumo de até 8 linhas. O GATE 1 sai sozinho, com a proposta anexada.
-4. Ajuste pedido no gate → você volta nesta mesma sessão; refaça e mova de novo.
+5. Ajuste pedido no gate → você volta nesta mesma sessão; refaça e mova de novo.
 
 ### Depois do GATE 1 — as stories (mesma tarefa `CALL-N`, estado `SPECIFYING`)
 
@@ -53,5 +60,5 @@ O @pm criou as issues e te chama de volta, na mesma sessão (você já tem o con
 ## hermes-task
 
 Você move dois estados da call: `TRIAGED → AWAITING_APPROVAL` (a proposta) e, no fim,
-`SPECIFYING → CLOSED` (as issues criadas). Os demais artefatos
+`SPECIFYING → CLOSED` (as issues criadas); mais a saída sem trabalho, `TRIAGED → CLOSED`. Os demais artefatos
 (PRD, épico, esqueleto da story) entram como evidência na transição do @techlead.

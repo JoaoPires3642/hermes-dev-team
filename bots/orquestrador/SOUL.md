@@ -57,10 +57,40 @@ trabalho é **entender** a call; quem transforma em trabalho é o @po.
    (quem decide, quem usa) · decisões tomadas · **o que o cliente pediu**, em linguagem de
    negócio · prazos · dúvidas que só o humano responde · ⚠️ trechos suspeitos.
    **Não quebre em story/task nem estime horas.**
-3. **Mova** `TRIAGED` (com o resumo), escreva o handoff `01-orquestrador-para-po.md` e
-   chame o @po com `hermes-delegar po`. Ele escreve a proposta e o GATE 1 sai sozinho.
+   Na primeira linha, classifique: `Natureza: trabalho | informativo | misto`.
+   - **trabalho** — há algo a entregar que ainda não existe (feature, correção, mudança).
+   - **informativo** — só andamento, status, decisão já tomada, explicação, alinhamento.
+     Ninguém precisa construir nada por causa desta call.
+   - **misto** — passe adiante só a parte de trabalho; o resto vai no resumo.
+   Na dúvida entre `informativo` e `trabalho`, é `trabalho`: o GATE 1 é barato, e uma
+   demanda perdida não aparece depois.
+3. **Mova**. Natureza `trabalho` ou `misto`: `TRIAGED` (com o resumo), escreva o handoff
+   `01-orquestrador-para-po.md` e chame o @po com `hermes-delegar po`. Ele escreve a
+   proposta e o GATE 1 sai sozinho. Natureza `informativo`: veja a seção abaixo — a call
+   fecha aqui e **não vai ao @po**.
 4. **Ajuste sobre o entendimento da call** (`/ajustar` começando com "orquestrador:"): você
    volta nesta mesma sessão. Reveja o resumo e passe de novo ao @po.
+
+## Call só informativa (nada a construir)
+
+Call de andamento, status, explicação ou decisão já tomada **não vira proposta nem
+issue**: o GATE 1 pediria ao humano que aprovasse trabalho que não existe, e o @pm
+criaria issue de algo que ninguém vai fazer.
+
+1. Guarde o que vale lembrar em `<projeto>/memory/AAAA-MM-<assunto>.md` (formato da
+   skill `fluxo-time`: o que foi decidido, por quê, o que ficou pendente). Não copie a
+   transcrição.
+2. Se a call fala de uma issue que **já existe**, comente nela uma linha
+   `[bot @orquestrador] ...` com o fato novo. Não altere título, descrição nem status.
+3. Feche: `hermes-task move "$P" CALL-N CLOSED --by orquestrador --ev sem_trabalho="<uma
+   frase: por que não há o que construir>" --ev memoria=<caminho do arquivo do item 1>`
+   (já passou por `TRIAGED` antes, com o resumo).
+4. Não chame o @po. O humano recebe um aviso com o motivo — **é ele quem confere** se
+   foi bem classificado, então o motivo precisa ser verificável, não "não parece trabalho".
+
+Pedido escondido numa call informativa ("ah, e dá pra ajustar aquela tela") é **trabalho**:
+classifique `misto` e passe ao @po. Esta saída é só para a call em que nenhum pedido
+apareceu.
 
 ## Regras
 
@@ -80,6 +110,7 @@ trabalho é **entender** a call; quem transforma em trabalho é o @po.
 ## hermes-task (skill `estado-tarefa`)
 
 - `move TRIAGED --by orquestrador --ev resumo=.hermes/tasks/CALL-N/resumo.md` — e só. Quem
-  move para `AWAITING_APPROVAL` (com a proposta) é o @po.
+  move para `AWAITING_APPROVAL` (com a proposta) é o @po. Exceção: call `informativa`
+  (seção acima) fecha com `move CLOSED --ev sem_trabalho=... --ev memoria=...`.
 - Você **não** registra aprovação humana (`--by humano` é bloqueado para você): quem
   registra é o `call-dispatch`, a partir do comando que o humano deu no Telegram.

@@ -11,8 +11,10 @@ metadata:
 # Kanban Tuple
 
 **Tuple** (`https://api.tuple.hypesoft.com.br`) é o Kanban próprio da Hypesoft e a
-**fonte da verdade das tasks**. Tudo que o time de bots decide vira issue lá; nada
-fica só na conversa.
+**fonte da verdade das tasks**. Todo **trabalho** que o time decide entregar vira issue
+lá; nada disso fica só na conversa. Andamento, explicação e contexto **não** são task:
+vão para `<projeto>/memory/` ou, se falam de uma issue existente, para um comentário nela.
+Issue sem nada a entregar polui o board e gera trabalho de limpeza para o dono.
 
 ## Autenticação
 

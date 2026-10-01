@@ -45,6 +45,7 @@ Depois de cada `move`, o comando diz o status do TUPLE: mova lá também (`tuple
 | AWAITING_APPROVAL → SPECIFYING | **humano** (GATE 1) | `issues=...` `via=telegram:<uid>:<msg>` |
 | AWAITING_APPROVAL → TRIAGED | **humano** (GATE 1: ajustar) | `motivo=...` (volta ao @orquestrador; máx. 3) |
 | SPECIFYING → CLOSED | @po | só `CALL-N`: `issues=KEY1,KEY2` — a call virou issues e cada uma segue sozinha |
+| TRIAGED → CLOSED | @orquestrador ou @po | só `CALL-N` **sem trabalho**: `sem_trabalho=<por quê>` + `memoria=<arquivo>` — o humano é avisado com o motivo |
 | SPECIFYING → AWAITING_SPEC_APPROVAL | @techlead | `story=<arq>` `dor=ok` + `contrato=<arq>` se front+back + `allowed_paths` de cada dev |
 | AWAITING_SPEC_APPROVAL → SPEC_APPROVED | **humano** (GATE 2) | `via=...` |
 | SPEC_APPROVED → IMPLEMENTING | @techlead | `specs=<dir>` `branch=<nome>` |
