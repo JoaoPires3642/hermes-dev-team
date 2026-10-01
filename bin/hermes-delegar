@@ -44,6 +44,11 @@ import time
 from pathlib import Path
 
 import yaml
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 for _fluxo in (sys.stdout, sys.stderr):
     try:
@@ -160,7 +165,7 @@ def vivo(pid):
     except (TypeError, ValueError):
         return False
     if sys.platform == "win32":
-        r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA)
         return str(pid) in r.stdout
     try:
         os.kill(pid, 0)
@@ -188,7 +193,7 @@ def avisar(texto, anexo=None):
     for i in range(3):   # timeout isolado do Telegram não pode engolir um gate
         try:
             ok = subprocess.run([h, "-p", AVISO_PROFILE, "send", "--to", "telegram", "-q", "--file", "-"],
-                                input=texto, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60).returncode == 0
+                                input=texto, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60, creationflags=SEM_JANELA).returncode == 0
         except subprocess.TimeoutExpired:
             ok = False
         if ok:
@@ -196,7 +201,7 @@ def avisar(texto, anexo=None):
         time.sleep(3 * (i + 1))
     if ok and anexo and Path(anexo).is_file():
         subprocess.run([h, "-p", AVISO_PROFILE, "send", "--to", "telegram", "-q", f"MEDIA:{anexo}"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, creationflags=SEM_JANELA)
     return ok
 
 
@@ -395,8 +400,11 @@ def supervisionar(arq):
            "--query-file", reg["prompt"], "--oneshot", "-Q"]
     reg.update(status="rodando", inicio=agora(), cmd=cmd, supervisor_pid=os.getpid())
     gravar(arq, reg)
+    # No Windows os flags se combinam com OR num UNICO creationflags. Passar um
+    # segundo argumento apaga o primeiro em silencio: foi assim que o
+    # CREATE_NEW_PROCESS_GROUP se perdeu e as rodadas de fundo pararam de terminar.
     extra = {"start_new_session": True} if sys.platform != "win32" else \
-        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | SEM_JANELA}
     try:
         with open(reg["saida"], "w", encoding="utf-8") as out, \
                 open(reg["erros"], "w", encoding="utf-8") as err:
@@ -432,7 +440,7 @@ def matar(proc):
     """Timeout: derruba o bot e tudo que ele abriu (kiro-cli, terminal, testes)."""
     try:
         if sys.platform == "win32":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, creationflags=SEM_JANELA)
         else:
             os.killpg(proc.pid, signal.SIGTERM)
             try:

@@ -28,6 +28,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 TIPOS = ("feat", "fix", "chore", "docs", "refactor", "perf", "test",
          "build", "ci", "style", "revert")
@@ -90,7 +95,7 @@ def git(repo, *args, checar=True):
         fim(ERRO, "recusado: argumento proibido em 'git %s'" % alvo)
     p = subprocess.run(["git", "-C", str(repo), "-c", "credential.interactive=false", *args],
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       env=sem_dialogo(), timeout=180)
+                       env=sem_dialogo(), timeout=180, creationflags=SEM_JANELA)
     if checar and p.returncode:
         fim(ERRO, "git %s falhou:\n%s" % (alvo, (p.stderr or p.stdout).strip()))
     return p

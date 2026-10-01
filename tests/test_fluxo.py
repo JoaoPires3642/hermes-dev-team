@@ -126,8 +126,13 @@ class TestCliente(Base):
         self.ok(self.a.dispatch("cliente", "CALL-1", "acme", "--via", VIA))
         self.a.esperar_rodadas(self.a.acme)
         chat = self.a.chats()[0]
-        self.assertEqual((chat["perfil"], chat["sessao"], chat["projeto"]),
-                         ("orquestrador", "CALL-1-orquestrador", str(self.a.acme)))
+        self.assertEqual((chat["perfil"], chat["sessao"]),
+                         ("orquestrador", "CALL-1-orquestrador"))
+        # resolve() nos dois lados: no Windows o temp vem como caminho CURTO 8.3
+        # (JOAO~1.PIR) de um lado e longo (joao.pires) do outro, e a comparacao literal
+        # falha apontando para a mesma pasta. E o mesmo tipo de divergencia que o
+        # `pwd -W` resolve nos helpers.
+        self.assertEqual(Path(chat["projeto"]).resolve(), self.a.acme.resolve())
         self.assertIn("Não quebre em story/task", chat["query"])   # a quebra é do @po
         self.assertEqual(self.a.call("CALL-1")["estado"], "NO_PROJETO")
 

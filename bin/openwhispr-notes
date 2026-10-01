@@ -32,6 +32,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 DB_NOME = "transcriptions.db"
 MARCA = ".ultima-exportacao-openwhispr.json"
@@ -376,7 +381,7 @@ def _exportar(args, db, inbox):
         registrar(inbox, "disparando: " + args.ao_criar)
         try:
             saida = subprocess.run(args.ao_criar, shell=True, capture_output=True,
-                                   text=True, timeout=120)
+                                   text=True, timeout=120, creationflags=SEM_JANELA)
             if saida.returncode:
                 registrar(inbox, "gatilho falhou (%d): %s" %
                           (saida.returncode, (saida.stderr or "").strip()[:200]))

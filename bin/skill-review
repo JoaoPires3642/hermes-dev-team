@@ -36,6 +36,11 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 for _f in (sys.stdout, sys.stderr):
     try:
@@ -225,7 +230,7 @@ def analisar(a: dict) -> dict:
 
 def git(*args, check=True):
     p = subprocess.run(["git", "-C", str(repo()), *args], capture_output=True,
-                       text=True, encoding="utf-8", errors="replace")
+                       text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA)
     if check and p.returncode:
         raise RuntimeError("git %s: %s" % (" ".join(args), (p.stderr or p.stdout).strip()))
     return p

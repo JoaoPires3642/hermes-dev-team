@@ -21,6 +21,10 @@ import tempfile
 import time
 from pathlib import Path
 
+# No Windows cada subprocess abre uma janela de console que pisca. Numa rodada da
+# suite sao centenas. Este flag so existe no Windows; nos outros o valor e 0.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 REPO = Path(__file__).resolve().parent.parent
 UID = "5057406158"
 VIA = f"telegram:{UID}:1"
@@ -33,6 +37,11 @@ BOTS = {"orquestrador": "anthropic", "po": "anthropic", "pm": "anthropic",
 HERMES_FALSO = r'''#!{python}
 import json, os, subprocess, sys
 from pathlib import Path
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 fake = Path(os.environ["FAKE_DIR"])
 a = sys.argv[1:]
 perfil = a[a.index("-p") + 1] if "-p" in a else None
@@ -63,7 +72,7 @@ if "chat" in a:
         arq = proj / ".hermes" / "tasks" / key / f"{{ev}}.md"
         arq.write_text(f"{{ev}} de teste", encoding="utf-8")
         subprocess.run([sys.executable, str(Path(__file__).parent / "hermes-task"), "move", str(proj), key,
-                        estado, "--by", perfil, "--ev", f"{{ev}}={{arq}}"], check=True, capture_output=True)
+                        estado, "--by", perfil, "--ev", f"{{ev}}={{arq}}"], check=True, capture_output=True, creationflags=SEM_JANELA)
     print(f"resumo de teste do @{{perfil}}")
     codigo = fake / "chat_exit"
     sys.exit(int(codigo.read_text()) if codigo.exists() else 0)
@@ -170,7 +179,7 @@ class Ambiente:
         # escreve UTF-8 por PYTHONIOENCODING; o pai precisa ler igual.
         return subprocess.run([sys.executable, str(self.bin / script), *args], env=env, input=entrada,
                               capture_output=True, text=True, timeout=120,
-                              encoding="utf-8", errors="replace")
+                              encoding="utf-8", errors="replace", creationflags=SEM_JANELA)
 
     def dispatch(self, *args, **kw):
         return self.rodar("call-dispatch", *args, **kw)
@@ -182,11 +191,11 @@ class Ambiente:
         repo = projeto / "repos" / "app"
         repo.mkdir(parents=True)
         g = ["git", "-C", str(repo), "-c", "user.name=Teste", "-c", "user.email=t@t"]
-        subprocess.run(g[:3] + ["init", "-q"], check=True)
+        subprocess.run(g[:3] + ["init", "-q"], check=True, creationflags=SEM_JANELA)
         for i, msg in enumerate(mensagens):
             (repo / f"f{i}.txt").write_text(msg)
-            subprocess.run(g + ["add", "."], check=True)
-            subprocess.run(g + ["commit", "-q", "-m", msg], check=True)
+            subprocess.run(g + ["add", "."], check=True, creationflags=SEM_JANELA)
+            subprocess.run(g + ["commit", "-q", "-m", msg], check=True, creationflags=SEM_JANELA)
         return repo
 
     def task(self, *args):

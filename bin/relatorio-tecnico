@@ -32,6 +32,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 # stdout do Windows e cp1252: sem isto o primeiro emoji da mensagem derruba o
 # proprio script na hora de imprimir (o --seco morria no 🏗).
@@ -66,7 +71,7 @@ def rodar(cmd, **kw):
     # encoding explicito: sem ele o Windows decodifica em cp1252 e o primeiro acento
     # derruba a chamada -- foi assim que nenhum aviso de call saia desta maquina.
     return subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", **kw)
+                          encoding="utf-8", errors="replace", **kw, creationflags=SEM_JANELA)
 
 
 def repos(proj: Path) -> list[Path]:

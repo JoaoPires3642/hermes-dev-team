@@ -37,6 +37,11 @@ import time
 from pathlib import Path
 
 import yaml
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 for _fluxo in (sys.stdout, sys.stderr):
     try:
@@ -107,8 +112,14 @@ def repos(proj):
 
 
 def commits(repo, desde):
-    r = subprocess.run(["git", "-C", str(repo), "log", "--all", "--no-merges", f"--since={desde.isoformat()}",
-                        "-n", "60", "--format=%h\x1f%an\x1f%s"], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    # FileNotFoundError quando nao ha git no PATH: sem o try, o relatorio de TODOS
+    # os clientes morre porque UM repo nao pode ser lido. Sem git o resumo fica mais
+    # pobre, e isso e melhor que nao existir.
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "log", "--all", "--no-merges", f"--since={desde.isoformat()}",
+                            "-n", "60", "--format=%h\x1f%an\x1f%s"], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA)
+    except (OSError, subprocess.SubprocessError):
+        return []
     if r.returncode != 0:
         return []
     return [dict(zip(("hash", "autor", "msg"), l.split("\x1f"))) for l in r.stdout.splitlines() if l]
@@ -245,7 +256,7 @@ def escrever(proj, fatos_txt, data, dia_iso, hermes):
     try:
         r = subprocess.run([hermes, "-p", PERFIL, "chat", "--in", str(proj), "--continue", f"daily-{dia_iso}",
                             "--create-if-missing", "--query-file", str(prompt), "--oneshot", "-Q"],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, cwd=proj)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, cwd=proj, creationflags=SEM_JANELA)
     except subprocess.TimeoutExpired:
         return None
     texto = (r.stdout or "").strip()
@@ -289,7 +300,7 @@ def enviar(texto, hermes, perfil):
     for i in range(3):   # o Telegram às vezes dá timeout num envio e passa no seguinte
         try:
             r = subprocess.run([hermes, "-p", perfil, "send", "--to", "telegram", "-q", "--file", "-"],
-                               input=texto, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60)
+                               input=texto, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60, creationflags=SEM_JANELA)
             if r.returncode == 0:
                 return True
         except subprocess.TimeoutExpired:

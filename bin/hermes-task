@@ -24,6 +24,11 @@ import sys
 from pathlib import Path, PurePosixPath
 
 import yaml
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 # stdout do Windows é cp1252 e engasga em → e emoji: o script morreria ao imprimir,
 # não ao fazer o trabalho. Os bots leem esta saída, então ela precisa sair.
@@ -224,7 +229,7 @@ def arquivos_da_tarefa(root, m):
         repo = root / caminho
         if not (repo / ".git").exists():
             continue
-        g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+        g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA).stdout
         # `Refs: <KEY>` e não a KEY solta: o corpo de um commit costuma citar outra
         # task ("usa o recálculo de SELL-78"), e o grep frouxo atribuía os arquivos
         # daquele commit a esta tarefa — o DoD reprovava por "fora de allowed_paths"
@@ -469,7 +474,7 @@ def _tuple(root, *args, timeout=60):
     cmd = ["tuple-api", str(root), *args]
     if sys.platform == "win32":
         cmd = ["bash", "-lc", " ".join(shlex.quote(c) for c in cmd)]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, creationflags=SEM_JANELA)
 
 
 def sincronizar_tuple(root, key, estado, motivo=""):

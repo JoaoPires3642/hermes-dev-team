@@ -30,6 +30,11 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 LIMITE_PADRAO = 300  # 5 min: o ticker bate a cada ~60s, então 5 min é folga real
 ESTADO = ".gateway-heartbeat.json"
@@ -76,7 +81,7 @@ def processo_vivo(pid):
     if sys.platform == "win32":
         try:
             saida = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
-                                   capture_output=True, text=True, timeout=30).stdout
+                                   capture_output=True, text=True, timeout=30, creationflags=SEM_JANELA).stdout
             return str(pid) in saida
         except (OSError, subprocess.SubprocessError):
             return False
@@ -145,7 +150,7 @@ def tentar_subir(raiz):
         return False, "não achei o hermes em %s" % cmd
     try:
         p = subprocess.run([str(cmd), "gateway", "start"], capture_output=True,
-                           text=True, timeout=180)
+                           text=True, timeout=180, creationflags=SEM_JANELA)
         return p.returncode == 0, (p.stdout or p.stderr or "").strip()[:200]
     except (OSError, subprocess.SubprocessError) as exc:
         return False, str(exc)[:200]

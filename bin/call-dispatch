@@ -49,6 +49,11 @@ import time
 from pathlib import Path
 
 import yaml
+# No Windows cada subprocess abre uma janela de console que pisca na tela. Numa rodada
+# de teste sao centenas; num turno de bot, uma a cada ferramenta chamada. Este flag
+# existe so no Windows; nos outros sistemas o valor e 0 e nao muda nada.
+SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 for _fluxo in (sys.stdout, sys.stderr):
     try:
@@ -141,7 +146,7 @@ def irmao(nome):
 
 
 def rodar(nome, *args):
-    r = subprocess.run(irmao(nome) + list(args), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(irmao(nome) + list(args), capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA)
     if r.returncode != 0:
         raise Negado(f"{nome}: {(r.stderr or r.stdout).strip()}")
     return r.stdout.strip()
@@ -181,7 +186,7 @@ def avisar(texto, tentativas=3):
     for i in range(tentativas):
         try:
             r = subprocess.run([h, "-p", AVISO_PROFILE, "send", "--to", "telegram", "-q", "--file", "-"],
-                               input=texto, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60)
+                               input=texto, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=60, creationflags=SEM_JANELA)
             if r.returncode == 0:
                 return True
         except subprocess.TimeoutExpired:
@@ -287,7 +292,7 @@ def cmd_varrer(_a):
             print(f"{c['id']}: pergunta reenviada ({'ok' if c['avisada'] else 'falhou de novo'})")
     # rodada que morreu no meio (reboot) nunca terminaria sozinha: o job de 15 min acha
     try:
-        subprocess.run(irmao("hermes-delegar") + ["reconciliar"], capture_output=True, timeout=120)
+        subprocess.run(irmao("hermes-delegar") + ["reconciliar"], capture_output=True, timeout=120, creationflags=SEM_JANELA)
     except (Negado, OSError, subprocess.SubprocessError):
         pass
     print(f"{novas} call(s) nova(s)", file=sys.stderr)
@@ -641,7 +646,7 @@ def cmd_doctor(a):
     def rodar_ok(cmd, timeout=30, ambiente=None):
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
-                               env=ambiente)
+                               env=ambiente, creationflags=SEM_JANELA)
             return r.returncode == 0, (r.stdout + r.stderr).strip()
         except (OSError, subprocess.SubprocessError) as e:
             return False, str(e)
