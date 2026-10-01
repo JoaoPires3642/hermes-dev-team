@@ -1,0 +1,357 @@
+#!/usr/bin/env python
+"""skill-review — colhe o que os bots escreveram nas proprias skills e classifica.
+
+    skill-review colher                 # o que divergiu do repo, sem julgar
+    skill-review analisar [--json]      # classifica cada divergencia
+    skill-review aplicar [--sim]        # leva as SEGURAS para o repo e commita
+    skill-review quarentena <bot> <skill> [--motivo ...]
+    skill-review pendentes              # o que espera decisao humana
+
+Por que existe
+--------------
+Bot que melhora a propria skill e o que faz o time aprender. Tambem e como um bot se
+da autoridade que ninguem deu: em 29/09 o @pm reescreveu a `pm-board-cadence` deixando
+a DESCRICAO dizendo "propoe fechamento, nunca fecha" e o CORPO dizendo "Move old
+IN_REVIEW to DONE", mais uma secao de bulk-assign. Quem lesse so a descricao aprovava.
+
+De cinco skills escritas por bot ate 30/09, uma fez isso. As outras quatro restringiram.
+Entao o problema nao e "bot nao deve escrever skill" — e nao ter quem leia o diff.
+
+A divisao aqui e deliberada: **o catastrofico e codigo, o resto e julgamento.**
+O @manutencao decide o que e boa mudanca; ele NAO decide se uma mudanca tirou uma trava,
+se a versao nao subiu ou se um bot mexeu na skill de outro. Isso o codigo responde
+sozinho, igual sempre, e ele nao tem como se convencer do contrario.
+"""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import io
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+for _f in (sys.stdout, sys.stderr):
+    try:
+        _f.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+OK, ERRO, USO = 0, 1, 2
+SEGURO, GATE, NEGAR = "SEGURO", "GATE", "NEGAR"
+
+# Vocabulario de permissao. Mencionar isto nao e crime -- as melhores skills de hoje
+# mencionam para se PROIBIR ("--by humano e bloqueado para bot, nao tente contornar").
+# Por isso mencao vira GATE (humano le), nunca NEGAR automatico.
+PERMISSAO = re.compile(
+    r"\bDONE\b|--by[ =]humano|\bgate\b|aprovar?\b|allowed_paths|\bmerge\b|--force|"
+    r"assigneeId|bulk\s+assign|pode\s+(?:fechar|aprovar|mergear|pular)|"
+    r"sem\s+(?:aprova|revis|autoriza)|ignore?\s+o\s+gate", re.I)
+
+# Linha que EXISTE para impedir alguma coisa. Remover uma dessas e o padrao que
+# transformou a pm-board-cadence 1.1.0 em problema: nao se nega por mencionar trava,
+# nega-se por APAGAR trava.
+TRAVA = re.compile(
+    r"\bnunca\b|\bn[ãa]o\s+(?:move|mexa|fa[çc]a|tente|aprove|pode|deve|commite)|"
+    r"\bproibid|\brecuse?\b|\bbloqueado\b|\bexige\s+(?:OK|autoriza)|"
+    r"\bs[óo]\s+(?:humano|a\s+revis)|\bnever\b|\bdoes\s+NOT\b|\bdo\s+not\b", re.I)
+
+
+def repo() -> Path:
+    return Path(os.getenv("HERMES_DEV_TEAM") or Path(__file__).resolve().parent.parent)
+
+
+def raiz_hermes() -> Path:
+    env = os.getenv("HERMES_HOME")
+    if env:
+        p = Path(env)
+        return p.parent.parent if p.parent.name == "profiles" else p
+    if sys.platform == "win32":
+        return Path(os.getenv("LOCALAPPDATA", str(Path.home()))) / "hermes"
+    return Path.home() / ".hermes"
+
+
+def donos() -> dict:
+    """{skill: bot} para as de bot, e {skill: '*'} para as compartilhadas.
+
+    Le o gen_bots.py, que e a fonte: quem edita skill de outro bot nao esta melhorando
+    o proprio trabalho, esta mexendo no de alguem.
+    """
+    d = {s.name: "*" for s in (repo() / "shared-skills").iterdir() if s.is_dir()}
+    try:
+        texto = (repo() / "scripts" / "gen_bots.py").read_text(encoding="utf-8")
+    except OSError:
+        return d
+    for m in re.finditer(r'"([\w-]+)":\s*\{(.*?)\n    \},', texto, re.S):
+        bot, corpo = m.group(1), m.group(2)
+        ex = re.search(r'"extra_skills":\s*\[(.*?)\]', corpo, re.S)
+        if ex:
+            for nome in re.findall(r'"([\w-]+)"', ex.group(1)):
+                d[nome] = bot
+    return d
+
+
+def caminho_repo(skill: str) -> Path | None:
+    for base in ("shared-skills", "extra-skills"):
+        p = repo() / base / skill / "SKILL.md"
+        if p.is_file():
+            return p
+    return None
+
+
+def versao(texto: str) -> str:
+    m = re.search(r"^version:\s*(.+)$", texto, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def descricao(texto: str) -> str:
+    m = re.search(r"^description:\s*(.+)$", texto, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def colher() -> list[dict]:
+    """Skills no profile que divergem do repo, ou que o repo nem conhece."""
+    perfis = raiz_hermes() / "profiles"
+    if not perfis.is_dir():
+        return []
+    dono = donos()
+    achados = []
+    for prof in sorted(p for p in perfis.iterdir() if (p / "skills").is_dir()):
+        raiz_sk = prof / "skills"
+        for sk in sorted(raiz_sk.rglob("SKILL.md")):
+            # As nossas instalam PLANAS (skills/<nome>/SKILL.md); as do catalogo do
+            # Hermes vem aninhadas numa familia (skills/creative/archify/SKILL.md).
+            # Usar a profundidade e melhor que listar o catalogo: ele muda sozinho a
+            # cada versao, e a lista ficaria velha sem ninguem notar.
+            if len(sk.relative_to(raiz_sk).parts) != 2:
+                continue
+            nome = sk.parent.name
+            alvo = caminho_repo(nome)
+            atual = sk.read_text(encoding="utf-8", errors="replace")
+            antes = alvo.read_text(encoding="utf-8", errors="replace") if alvo else ""
+            if antes == atual:
+                continue
+            achados.append({
+                "bot": prof.name, "skill": nome, "nova": alvo is None,
+                "arquivo": str(sk), "destino": str(alvo) if alvo else "",
+                "dono": dono.get(nome, "?"), "antes": antes, "depois": atual,
+            })
+    return achados
+
+
+def analisar(a: dict) -> dict:
+    """Veredito + motivos. As regras abaixo nao sao opiniaveis: o bot nao as reavalia."""
+    motivos, veredito = [], SEGURO
+    linhas = list(difflib.unified_diff(
+        a["antes"].splitlines(), a["depois"].splitlines(), lineterm="", n=0))
+    saiu = [l[1:] for l in linhas if l.startswith("-") and not l.startswith("---")]
+    entrou = [l[1:] for l in linhas if l.startswith("+") and not l.startswith("+++")]
+
+    def pior(v):
+        nonlocal veredito
+        ordem = {SEGURO: 0, GATE: 1, NEGAR: 2}
+        if ordem[v] > ordem[veredito]:
+            veredito = v
+
+    # --- NEGAR: nao depende de julgamento ------------------------------------
+    travas_removidas = [l.strip() for l in saiu if TRAVA.search(l)]
+    if travas_removidas:
+        pior(NEGAR)
+        motivos.append("removeu %d linha(s) que existiam para impedir algo: %s"
+                       % (len(travas_removidas), travas_removidas[0][:90]))
+
+    if a["dono"] not in ("*", "?", a["bot"]) and not a["nova"]:
+        pior(NEGAR)
+        motivos.append("skill e do @%s, quem mexeu foi o @%s" % (a["dono"], a["bot"]))
+
+    if not a["nova"]:
+        v0, v1 = versao(a["antes"]), versao(a["depois"])
+        if v0 == v1:
+            pior(NEGAR)
+            motivos.append("conteudo mudou e version continuou %s — sem bump nada "
+                           "sinaliza a mudanca" % (v0 or "(ausente)"))
+
+    # Descricao suavizada enquanto o corpo mexe em permissao: o padrao exato da
+    # pm-board-cadence 1.1.0, onde ler so a descricao levava a aprovar.
+    if (not a["nova"]
+            and descricao(a["antes"]) != descricao(a["depois"])
+            and any(PERMISSAO.search(l) for l in entrou)):
+        pior(NEGAR)
+        motivos.append("mudou a descricao E mexeu em permissao no corpo — "
+                       "foi assim que a pm-board-cadence 1.1.0 passou")
+
+    # --- GATE: valido, mas quem decide e o humano ----------------------------
+    if a["dono"] == "*" and not a["nova"]:
+        pior(GATE)
+        motivos.append("skill compartilhada: regra do time inteiro, nao de um bot")
+
+    mencoes = [l.strip() for l in entrou if PERMISSAO.search(l)]
+    if mencoes:
+        pior(GATE)
+        motivos.append("fala de permissao em %d linha(s) nova(s) — pode ser restricao "
+                       "(bom) ou autorizacao (nao): %s" % (len(mencoes), mencoes[0][:80]))
+
+    if a["nova"]:
+        pior(GATE)
+        motivos.append("skill nova: ninguem definiu que este bot deveria ter esta")
+
+    if len(entrou) > 120:
+        pior(GATE)
+        motivos.append("%d linhas novas: grande demais para aprovar sem ler" % len(entrou))
+
+    if veredito == SEGURO:
+        motivos.append("+%d/-%d linhas, sem tocar permissao, versao subiu, skill e dele"
+                       % (len(entrou), len(saiu)))
+    return {"veredito": veredito, "motivos": motivos,
+            "entrou": len(entrou), "saiu": len(saiu)}
+
+
+def git(*args, check=True):
+    p = subprocess.run(["git", "-C", str(repo()), *args], capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    if check and p.returncode:
+        raise RuntimeError("git %s: %s" % (" ".join(args), (p.stderr or p.stdout).strip()))
+    return p
+
+
+def pasta_pendentes() -> Path:
+    d = raiz_hermes() / "skill-review"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def guardar_pendente(a: dict, r: dict) -> Path:
+    f = pasta_pendentes() / ("%s__%s.json" % (a["bot"], a["skill"]))
+    dados = {k: a[k] for k in ("bot", "skill", "nova", "arquivo", "destino", "dono")}
+    dados.update({"veredito": r["veredito"], "motivos": r["motivos"],
+                  "em": datetime.now().isoformat(timespec="seconds")})
+    f.write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
+    return f
+
+
+# ------------------------------------------------------------------ comandos
+def cmd_colher(_a):
+    achados = colher()
+    if not achados:
+        print("nada divergente: o que os bots usam e o que o repo tem")
+        return OK
+    for a in achados:
+        print("%-14s %-30s %s" % (a["bot"], a["skill"],
+                                  "NOVA" if a["nova"] else "modificada"))
+    return OK
+
+
+def cmd_analisar(a):
+    achados = colher()
+    saida = []
+    for d in achados:
+        r = analisar(d)
+        saida.append({"bot": d["bot"], "skill": d["skill"], **r})
+        if r["veredito"] != SEGURO:
+            guardar_pendente(d, r)
+    if a.json:
+        print(json.dumps(saida, ensure_ascii=False, indent=1))
+        return OK
+    if not saida:
+        print("nada a analisar")
+        return OK
+    for s in saida:
+        marca = {SEGURO: "[ok]  ", GATE: "[GATE]", NEGAR: "[NEGA]"}[s["veredito"]]
+        print("%s @%-12s %-28s +%d/-%d" % (marca, s["bot"], s["skill"],
+                                           s["entrou"], s["saiu"]))
+        for m in s["motivos"]:
+            print("         %s" % m)
+    return OK
+
+
+def cmd_aplicar(a):
+    achados = colher()
+    levadas = []
+    for d in achados:
+        r = analisar(d)
+        if r["veredito"] != SEGURO:
+            guardar_pendente(d, r)
+            continue
+        levadas.append((d, r))
+    if not levadas:
+        print("nenhuma mudanca SEGURA; o resto esta em %s" % pasta_pendentes(),
+              file=sys.stderr)
+        return OK
+    print("vai levar para o repo:")
+    for d, r in levadas:
+        print("  @%-12s %-28s +%d/-%d" % (d["bot"], d["skill"], r["entrou"], r["saiu"]))
+    if not a.sim:
+        print("\nnada feito. repita com --sim", file=sys.stderr)
+        return USO
+    for d, _ in levadas:
+        destino = Path(d["destino"])
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        io.open(destino, "w", encoding="utf-8", newline="\n").write(d["depois"])
+        git("add", str(destino.relative_to(repo())))
+    corpo = "\n".join("- @%s: %s (+%d/-%d)" % (d["bot"], d["skill"], r["entrou"], r["saiu"])
+                      for d, r in levadas)
+    git("commit", "-m", "chore(skills): %d melhoria(s) de bot, aprovadas pelo skill-review"
+        % len(levadas), "-m", corpo + "\n\nSEGURO = nao removeu trava, nao mexeu em "
+        "permissao, versao subiu, e a skill e do proprio bot.")
+    print("\ncommit criado. `git push` quando quiser.")
+    return OK
+
+
+def cmd_quarentena(a):
+    sk = raiz_hermes() / "profiles" / a.bot / "skills" / a.skill
+    if not sk.is_dir():
+        print("nao achei %s" % sk, file=sys.stderr)
+        return USO
+    guarda = pasta_pendentes() / "quarentena" / ("%s__%s__%s" % (
+        a.bot, a.skill, datetime.now().strftime("%Y%m%d-%H%M%S")))
+    guarda.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(sk, guarda)
+    shutil.rmtree(sk)
+    (guarda / "MOTIVO.txt").write_text(
+        (a.motivo or "sem motivo") + "\n", encoding="utf-8")
+    print("@%s/%s em quarentena. Copia em %s" % (a.bot, a.skill, guarda))
+    return OK
+
+
+def cmd_pendentes(_a):
+    fs = sorted(pasta_pendentes().glob("*.json"))
+    if not fs:
+        print("nada esperando voce")
+        return OK
+    for f in fs:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        print("[%s] @%s / %s  (%s)" % (d["veredito"], d["bot"], d["skill"], d["em"][:16]))
+        for m in d["motivos"]:
+            print("    %s" % m)
+        print("    diff: diff \"%s\" \"%s\"" % (d["destino"] or "(nova)", d["arquivo"]))
+    return OK
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(prog="skill-review")
+    s = ap.add_subparsers(dest="cmd", required=True)
+    s.add_parser("colher").set_defaults(f=cmd_colher)
+    p = s.add_parser("analisar"); p.add_argument("--json", action="store_true")
+    p.set_defaults(f=cmd_analisar)
+    p = s.add_parser("aplicar"); p.add_argument("--sim", action="store_true")
+    p.set_defaults(f=cmd_aplicar)
+    p = s.add_parser("quarentena")
+    p.add_argument("bot"); p.add_argument("skill"); p.add_argument("--motivo")
+    p.set_defaults(f=cmd_quarentena)
+    s.add_parser("pendentes").set_defaults(f=cmd_pendentes)
+    a = ap.parse_args(argv)
+    try:
+        return a.f(a)
+    except RuntimeError as e:
+        print("skill-review: %s" % e, file=sys.stderr)
+        return ERRO
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
