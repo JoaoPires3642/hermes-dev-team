@@ -161,6 +161,30 @@ def cmd_preparar(a):
     if destino in BRANCHES_PROIBIDAS:
         fim(ERRO, "recusado: '%s' é branch protegida, bot não trabalha nela" % destino)
 
+    # GUARDA DE COLISÃO — antes de qualquer checkout.
+    #
+    # Há UM working tree por repo. Quando dois bots rodam em paralelo no mesmo
+    # projeto, o segundo trocava a branch por baixo do primeiro: `git checkout`
+    # CARREGA as alterações não commitadas para a branch nova quando não há
+    # conflito de conteúdo, então o código do primeiro dev reaparecia na branch do
+    # segundo. Aconteceu de verdade (OUVI-148 preparou a sua branch às 13:12 e às
+    # 13:18 virou a branch da OUVI-154, com os arquivos dos dois misturados).
+    #
+    # Recusar é a única saída segura: `stash` automático esconderia trabalho alheio
+    # e `checkout --force` o destruiria. Trocar de branch com árvore suja só é
+    # inofensivo quando já estamos na branch pedida (é o WIP do próprio dev).
+    atual = branch_atual(repo)
+    sujo = git(repo, "status", "--porcelain").stdout.strip()
+    if sujo and atual != destino:
+        arquivos = [l[3:] for l in sujo.splitlines()[:8]]
+        fim(BLOCKED,
+            "recusado: a árvore está em '%s' com alteração não commitada e esta tarefa "
+            "quer '%s'. Trocar de branch agora levaria o trabalho de quem está nela.\n"
+            "Arquivos: %s\n"
+            "Destrava: outro bot/humano commitar o que é dele, OU dar um working tree "
+            "separado por branch (git worktree). Não force, não stashe o que não é seu."
+            % (atual, destino, ", ".join(arquivos) or "?"))
+
     git(repo, "fetch", "--quiet", checar=False)
     existe = git(repo, "rev-parse", "--verify", "--quiet", destino, checar=False).returncode == 0
     if existe:
