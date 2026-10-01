@@ -1,7 +1,7 @@
 ---
 name: kanban-tuple
 description: Aplique antes de qualquer operação no Kanban Tuple (fonte da verdade das tasks). Cobre autenticação por variável de ambiente, convenção tRPC, ciclo de vida obrigatório da issue, o que a API key não alcança e o que exige OK humano.
-version: 1.0.0
+version: 1.1.0
 author: Joao Pires
 metadata:
   hermes:

@@ -1,7 +1,7 @@
 ---
 name: fluxo-time
 description: Aplique sempre. O fluxo do time de bots de dev (entradas, gates humanos pelo Telegram, papéis, handoffs por hermes-delegar em sessão nova, regras de segurança). Todo bot segue isto antes do próprio SOUL.
-version: 1.0.0
+version: 1.1.0
 author: Joao Pires
 metadata:
   hermes:
