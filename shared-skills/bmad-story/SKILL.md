@@ -82,6 +82,22 @@ peça de trabalho.
 Story que não passa no DoR **não** vai para o GATE 2: volta para a sala com o
 que falta.
 
+### O GATE 2 é condicional
+
+Passar no DoR não manda a story ao gate — manda ao **dev**. O gate existe para o que
+só o humano decide, e a última linha do checklist é que decide o caminho:
+
+- **Há decisão em aberto** → `AWAITING_SPEC_APPROVAL` com `--ev decisoes="<as
+  perguntas>"`. Elas vão escritas no gate.
+- **Nenhuma** → `SPEC_APPROVED` com `--ev sem_decisoes="<por que não há>"`, e segue para
+  o dev na mesma rodada. O humano é avisado e pode trazer de volta com `/ajustar`.
+
+Em 01/10 seis issues chegaram ao GATE 2 no mesmo minuto e três não perguntavam nada.
+Carimbo treina a aprovar sem ler: a única que importava recomendava cancelar a issue, foi
+aprovada no lote, e um dev começou a reconstruir o que já estava entregue.
+
+Gates da mesma call saem **num lote só**, quando a última irmã termina.
+
 ## Derivar o .kiro/specs (depois do GATE 2 aprovado)
 
 A story aprovada é a fonte; o `.kiro/specs/<story-id>-<slug>/` é gerado dela:

@@ -107,6 +107,23 @@ DOD = {
 
 H = {"humano"}
 FINAIS = {"MERGED", "DEPLOYED", "HOMOLOGATING"}
+CAMINHOS_GATE2 = """o GATE 2 agora e condicional, e falta dizer qual e o caso:
+  sobrou algo que SO O HUMANO decide ->
+    move AWAITING_SPEC_APPROVAL --ev decisoes="<as perguntas, uma frase cada>"
+  nao sobrou -> vai direto ao dev, sem gate:
+    move SPEC_APPROVED --ev sem_decisoes="<por que nao ha o que decidir>"
+
+Contam como decisao dele: regra de negocio com mais de uma leitura defensavel,
+quem pode ver ou fazer algo, mudar comportamento que ja esta no ar, e a tarefa
+nao devendo existir. Nao contam: escolha tecnica dentro do que a story ja fixou,
+nome de arquivo ou branch, ordem das tasks, o que o DoR ja responde."""
+
+
+def outras_faltas(faltas):
+    resto = [f for f in faltas if f not in ("decisoes", "sem_decisoes")]
+    return "\nFaltou tambem: " + ", ".join(resto) if resto else ""
+
+
 TRANSICOES = {
     ("RECEIVED", "TRIAGED"): ({"orquestrador"}, {"resumo": "arquivo"}),
     ("TRIAGED", "AWAITING_APPROVAL"): ({"po"}, {"proposta": "arquivo"}),                   # quebra do @po
@@ -119,10 +136,34 @@ TRANSICOES = {
     ("AWAITING_APPROVAL", "CLOSED"): (H, {"motivo": "texto"}),
     ("AWAITING_APPROVAL", "TRIAGED"): (H, {"motivo": "texto"}),                          # GATE 1: ajustar
     ("SPECIFYING", "CLOSED"): ({"po"}, {"issues": "texto"}),        # só CALL-N: issues criadas e passadas adiante
-    ("SPECIFYING", "AWAITING_SPEC_APPROVAL"): ({"techlead"}, {"story": "arquivo", "dor": "ok"}),
+    # GATE 2 agora e condicional, e a condicao e "ha algo que so o humano decide".
+    #
+    # Em 01/10 seis issues da skymark chegaram ao GATE 2 no mesmo minuto. Tres nao
+    # perguntavam nada — spec pronta, "aprova para o dev comecar". Carimbo treina a
+    # aprovar sem ler, e foi o que aconteceu com a unica que importava: a OUVI-154, em
+    # que o @techlead recomendava CANCELAR porque o pedido ja estava entregue, foi
+    # aprovada junto com o lote e um dev comecou a reconstruir o que existia.
+    #
+    # Entao: tem pergunta -> pede o gate, e a pergunta vem escrita (`decisoes`). Nao tem
+    # -> vai direto para o dev, e o humano recebe aviso informativo, nao gate. O DoR
+    # continua valendo nos dois caminhos; o que muda e so quem destrava.
+    ("SPECIFYING", "AWAITING_SPEC_APPROVAL"): ({"techlead"},
+                                               {"story": "arquivo", "dor": "ok",
+                                                "decisoes": "texto"}),
+    ("SPECIFYING", "SPEC_APPROVED"): ({"techlead"},
+                                      {"story": "arquivo", "dor": "ok",
+                                       "sem_decisoes": "texto"}),
     ("AWAITING_SPEC_APPROVAL", "SPEC_APPROVED"): (H, {"via": "texto"}),                  # GATE 2
     ("AWAITING_SPEC_APPROVAL", "SPECIFYING"): (H, {"motivo": "texto"}),
     ("SPEC_APPROVED", "IMPLEMENTING"): ({"techlead"}, {"specs": "arquivo", "branch": "texto"}),
+    # Recurso contra o GATE 2 dispensado. Dar ao @techlead o direito de seguir sem
+    # perguntar so e aceitavel se o humano puder desfazer depois — senao e autonomia
+    # sem recurso. Vale tambem quando ele percebe tarde que o trabalho nao deveria
+    # existir: a OUVI-154 foi aprovada no lote e um dev comecou a reconstruir o que
+    # o @techlead tinha dito que ja estava entregue.
+    ("IMPLEMENTING", "SPECIFYING"): (H, {"motivo": "texto"}),
+    ("IMPLEMENTING", "CLOSED"): (H, {"atendido": "texto"}),
+    ("AWAITING_SPEC_APPROVAL", "CLOSED"): (H, {"atendido": "texto"}),
     ("IMPLEMENTING", "TESTING"): (DEVS, {"handoff": "arquivo"}),
     ("TESTING", "CHANGES_REQUESTED"): ({"qa"}, {"relatorio": "arquivo", "para": "texto"}),
     ("CHANGES_REQUESTED", "IMPLEMENTING"): (DEVS, {}),
@@ -400,7 +441,7 @@ def cmd_move(a):
                     and not a.key.upper().startswith("CALL-"):
                 negar("só a tarefa de uma call (CALL-N) fecha assim; issue fecha no GATE 3")
             exig = dict(exig)
-            if (de, para) == ("SPECIFYING", "AWAITING_SPEC_APPROVAL"):
+            if de == "SPECIFYING" and para in ("AWAITING_SPEC_APPROVAL", "SPEC_APPROVED"):
                 if DEVS <= set(m["agentes"]):
                     exig["contrato"] = "arquivo"  # front e back em paralelo: contrato antes
                 sem_escopo = [d for d in m["agentes"] if d in DEVS and not (m.get("allowed_paths") or {}).get(d)]
@@ -410,6 +451,12 @@ def cmd_move(a):
                 exig["evidencia_visual"] = "arquivo"
             faltas = checa_ev(root, exig, ev)
             if faltas:
+                # Recusa que nao diz o que fazer custa uma rodada inteira. Em 01/10,
+                # quando o GATE 2 passou a ser condicional, sete issues da skymark
+                # estavam paradas em SPECIFYING: cada @techlead delas ia receber so
+                # "faltou evidência: decisoes", sem como saber que havia caminho novo.
+                if de == "SPECIFYING" and {"decisoes", "sem_decisoes"} & set(faltas):
+                    negar(CAMINHOS_GATE2 + outras_faltas(faltas))
                 negar("faltou evidência: " + ", ".join(faltas))
 
             if (de, para) == ("IMPLEMENTING", "TESTING"):
@@ -438,6 +485,12 @@ def cmd_move(a):
                      ("AWAITING_REVIEW", "MERGED"): "gate3"}
             if (de, para) in gates:
                 m["aprovacoes"][gates[(de, para)]] = {"em": agora(), "via": ev.get("via")}
+            if (de, para) == ("SPECIFYING", "SPEC_APPROVED"):
+                # Nao foi aprovado: foi dispensado, e o manifest tem de distinguir as
+                # duas coisas. Quem auditar depois precisa saber que ninguem olhou, e
+                # por que o @techlead disse que nao havia o que olhar.
+                m["aprovacoes"]["gate2"] = {"em": agora(), "via": None,
+                                            "dispensado": ev.get("sem_decisoes")}
             for k in ("resumo", "proposta", "story", "contrato", "specs", "revisao", "pr", "memoria"):
                 if k in ev:
                     m["artefatos"][k] = ev[k]

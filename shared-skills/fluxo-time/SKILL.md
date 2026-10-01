@@ -59,7 +59,7 @@ quando a tarefa chega em `AWAITING_APPROVAL` / `AWAITING_SPEC_APPROVAL` / `AWAIT
 | Gate | Chega quando | O humano responde | Aí o código |
 |---|---|---|---|
 | **GATE 1** | @po move a call para `AWAITING_APPROVAL` (com a proposta) | `/aprovar CALL-N` · `/ajustar CALL-N <o quê>` · `/rejeitar CALL-N <motivo>` | aprovar → chama o @pm; ajustar → volta ao @po (ou ao @orquestrador, se o texto começar com "orquestrador:"), na mesma sessão (máx. 3) |
-| **GATE 2** | @techlead move a issue para `AWAITING_SPEC_APPROVAL` | `/aprovar KEY` · `/ajustar KEY <o quê>` · `/rejeitar KEY <motivo>` | aprovar → chama o @techlead para gerar `.kiro/specs`; ajustar → volta ao @techlead |
+| **GATE 2** | @techlead move para `AWAITING_SPEC_APPROVAL` — **só quando sobrou decisão para você** (`--ev decisoes=...`); sem decisão ele vai direto ao dev e você recebe aviso. Gates da mesma call saem num lote | `/aprovar KEY` · `/ajustar KEY <o quê>` · `/rejeitar KEY <motivo>` · `/atendido KEY <motivo>` | aprovar → chama o @techlead para gerar `.kiro/specs`; ajustar → volta ao @techlead; atendido → encerra sem construir |
 | **GATE 3** | @qa move para `AWAITING_REVIEW` (DoD aceito) | revisa e faz o merge do PR | bot nunca faz merge nem move issue para `DONE` |
 
 As mensagens trazem os comandos prontos para **tocar** (`/aprovar_CALL_1`,
@@ -70,7 +70,19 @@ até o humano preencher o `AGENTS.md` (e apagar a marca `<!-- hermes: projeto no
 `.hermes/tuple.env` — sem isso não há onde criar issue.
 
 Humano escreveu "aprovado" em texto livre? **Não vale** — responda com o comando certo
-(`/aprovar <KEY>`). `/pendentes` lista o que espera por ele.
+(`/aprovar <KEY>`). `/pendentes` lista o que espera por ele, inclusive gate ainda seguro
+no lote.
+
+**Ao listar vários gates, não achate as perguntas.** Cada issue tem a sua, e elas não
+são a mesma. Em 01/10 o @orquestrador respondeu um "aprovado" solto listando seis
+`/aprovar` com a descrição da issue ao lado — e a OUVI-154, em que o @techlead
+recomendava **cancelar** porque o pedido já estava entregue, virou
+"`/aprovar OUVI-154` — lista de casos que aguardam o coordenador". Foi aprovada, e um
+dev começou a reconstruir o que existia. Repita a pergunta de cada uma, com a
+recomendação de quem a escreveu, ou mande ler o gate: nunca só o comando.
+
+Issue que **já está atendida** não se rejeita (isso diz "a spec está errada") nem se
+cancela (isso desiste do ajuste pendente): `/atendido KEY <motivo>`.
 
 ## Handoffs — trabalho vai por `hermes-delegar`, em sessão nova
 

@@ -39,11 +39,12 @@ COMANDOS = {
     "aprovar": (1, False, "<KEY>", "Aprova o GATE 1 (call) ou o GATE 2 (issue)"),
     "ajustar": (1, True, "<KEY> <o que mudar>", "Devolve o gate com o ajuste pedido"),
     "rejeitar": (1, True, "<KEY> <motivo>", "Rejeita o gate"),
+    "atendido": (1, True, "<KEY> <motivo>", "Encerra: o trabalho já está pronto, não construa"),
     "pendentes": (0, False, "", "Lista o que espera por você"),
     "cancelar": (0, False, "", "Desiste do ajuste/rejeição pendente"),
 }
 PENDENTE_SEG = 600
-TOQUE = re.compile(r"^/(aprovar|ignorar|ajustar|rejeitar|cliente|novo)_([A-Za-z0-9_]+?)(?:@\w+)?\s*$")
+TOQUE = re.compile(r"^/(aprovar|ignorar|ajustar|rejeitar|atendido|cliente|novo)_([A-Za-z0-9_]+?)(?:@\w+)?\s*$")
 
 
 # ------------------------------------------------------------------ pendente
@@ -152,6 +153,7 @@ def _fazer(nome: str):
             pend[uid] = {"cmd": nome, "key": fixas[0], "ate": time.time() + PENDENTE_SEG}
             _gravar_pendentes(pend)
             o_que = {"ajustar": "o que mudar", "rejeitar": "o motivo",
+                     "atendido": "por que já está atendido",
                      "novo": "o nome do cliente novo (vira a pasta do projeto)"}[nome]
             dica = ("\nÉ sobre o entendimento da call, e não sobre a quebra? Comece com “orquestrador:”."
                     if nome == "ajustar" and fixas[0].upper().startswith("CALL-") else "")

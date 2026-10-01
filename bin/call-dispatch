@@ -10,6 +10,7 @@
   call-dispatch aprovar  <KEY>                --via ...  # GATE 1 (call) ou GATE 2 (issue)
   call-dispatch ajustar  <KEY> <o que mudar>  --via ...
   call-dispatch rejeitar <KEY> <motivo>       --via ...
+  call-dispatch atendido <KEY> <motivo>       --via ...  # ja esta pronto, nao construa
 
 O fluxo
 -------
@@ -608,6 +609,16 @@ def cmd_ajustar(a):
         mover(proj, a.key, "SPECIFYING", motivo=texto)
         bot = "techlead"
         pede = "Revise a story com o ajuste abaixo e peça o GATE 2 de novo (AWAITING_SPEC_APPROVAL)."
+    elif estado == "IMPLEMENTING" and ((m.get("aprovacoes") or {}).get("gate2") or {}).get("dispensado"):
+        # O gate que ele nunca recebeu e justamente o que ele esta exercendo agora. Sem
+        # isto, dispensar o GATE 2 daria ao @techlead autonomia sem recurso.
+        mover(proj, a.key, "SPECIFYING", motivo=texto)
+        bot = "techlead"
+        pede = ("O humano discordou de dispensar o GATE 2. Revise a story com o ajuste "
+                "abaixo e peça o GATE 2 (AWAITING_SPEC_APPROVAL), com as decisões escritas.")
+        if list((proj / ".hermes" / "runs" / a.key).glob("*.lock")):
+            print(f"⚠️ {a.key} já tinha dev trabalhando — o que ele escreveu até agora "
+                  f"continua no disco e precisa ser revisto.")
     else:
         raise Negado(f"{a.key} está em {estado}: não há gate para ajustar")
     h = proximo_handoff(proj, a.key, bot, f"# Handoff · {a.key} · humano → @{bot}\n"
@@ -636,6 +647,40 @@ def cmd_rejeitar(a):
     return OK
 
 
+def cmd_atendido(a):
+    """Encerra porque o trabalho nao deveria existir — nao porque a spec esta errada.
+
+    `/rejeitar` diz "a story esta errada, refaca" e manda para BLOCKED; `/cancelar`
+    desiste do ajuste pendente. Nenhum dos dois diz "isso ja esta pronto, nao construa".
+    Em 01/10 o @techlead escreveu exatamente isso sobre a OUVI-154 ("Recomendacao:
+    CANCELAR, o pedido ja esta entregue") e teve de improvisar em prosa, porque nao
+    havia comando. A prosa se perdeu na lista do @orquestrador, a issue foi aprovada no
+    lote e um dev comecou a reconstruir o que existia.
+    """
+    via = conferir_via(a.via)
+    motivo = " ".join(a.texto).strip()
+    if not motivo:
+        raise Negado("diga por que já está atendido: /atendido <KEY> <motivo>")
+    proj, m = achar_tarefa(a.key)
+    a.key = m["task_id"]
+    estado = m.get("estado")
+    if estado not in ("AWAITING_APPROVAL", "AWAITING_SPEC_APPROVAL", "IMPLEMENTING"):
+        raise Negado(f"{a.key} está em {estado}: /atendido vale no gate ou durante o dev")
+    travas = list((proj / ".hermes" / "runs" / a.key).glob("*.lock")) \
+        if (proj / ".hermes" / "runs" / a.key).is_dir() else []
+    mover(proj, a.key, "CLOSED", atendido=f"{motivo} ({via})")
+    print(f"✅ {a.key} encerrada: já atendida — {motivo}")
+    if travas:
+        print(f"⚠️ Havia dev trabalhando ({', '.join(t.stem for t in travas)}). "
+              f"A sessão dele não para sozinha; o que ele escreveu fica no disco.")
+    # O board nao recebe CANCELLED por API: o TUPLE recusa saida dos status terminais e
+    # so pessoa aplica na interface (hermes-task:500). Dizer isso e melhor que deixar o
+    # card em DONE sugerindo que alguem entregou.
+    print("ℹ️ No TUPLE o card foi para DONE. Se quiser CANCELLED, é na mão na interface: "
+          "a API recusa status terminal.")
+    return OK
+
+
 def cmd_pendentes(_a):
     linhas = []
     for f in sorted(pasta_calls().glob("CALL-*.json"), key=lambda p: int(p.stem.split("-")[1])):
@@ -648,6 +693,19 @@ def cmd_pendentes(_a):
             m = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
             if m.get("estado") in espera:
                 linhas.append(f"🚦 [{proj.name}] {m.get('task_id')} — {espera[m['estado']]}: {m.get('objetivo', '')[:60]}")
+    # Gate seguro no lote ainda nao foi mandado: sem isto ele ficaria invisivel aqui
+    # justamente enquanto espera, que e quando o humano vem perguntar.
+    for proj in (projetos() if cfg("HERMES_PROJETOS") else []):
+        d = proj / ".hermes" / "gates-pendentes"
+        for f in sorted(d.glob("*.json")) if d.is_dir() else []:
+            try:
+                itens = (json.loads(f.read_text(encoding="utf-8")) or {}).get("itens") or {}
+            except (OSError, ValueError):
+                continue
+            if itens:
+                linhas_ = ", ".join(sorted(itens))
+                linhas.append(f"\u23f3 [{proj.name}] {f.stem}: {len(itens)} GATE 2 no lote "
+                              f"({linhas_}) \u2014 sai quando a \u00faltima irm\u00e3 terminar")
     print("\n".join(linhas) or "Nada esperando por você.")
     return OK
 
@@ -808,7 +866,8 @@ def main(argv):
     x.add_argument("--via", required=True); x.set_defaults(f=cmd_ignorar)
     x = s.add_parser("aprovar"); x.add_argument("key")
     x.add_argument("--via", required=True); x.set_defaults(f=cmd_aprovar)
-    for nome, fn in (("ajustar", cmd_ajustar), ("rejeitar", cmd_rejeitar)):
+    for nome, fn in (("ajustar", cmd_ajustar), ("rejeitar", cmd_rejeitar),
+                     ("atendido", cmd_atendido)):
         x = s.add_parser(nome); x.add_argument("key"); x.add_argument("texto", nargs="*")
         x.add_argument("--via", required=True); x.set_defaults(f=fn)
     a = ap.parse_args(argv)

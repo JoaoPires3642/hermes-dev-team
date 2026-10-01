@@ -250,6 +250,39 @@ def cauda(path, linhas=12):
         return ""
 
 
+MARCA_RESUMO = re.compile(
+    r"^\s*(?:#+\s*)?(?:\*\*)?resumo\b(?:\s*\([^)]*\))?\s*:?\s*(?:\*\*)?\s*:?\s*$"
+    r"|^\s*-{2,}\s*resumo\s*-{2,}\s*$", re.I)
+
+
+def resumo_da_rodada(path, linhas=14):
+    """So o resumo final do bot, nao a sessao inteira.
+
+    O prompt pede "termine com um resumo" e o bot obedece — escreve uma secao `Resumo:`
+    no fim. O codigo e que mandava `read_text()` inteiro para o Telegram: em 01/10 os
+    seis GATE 2 da skymark sairam com 41 a 51 linhas cada, abrindo com narracao interna
+    em ingles ("Let me verify the exact lines I'll cite...", "The && routed to
+    PowerShell again"). Com o gate ilegivel, o humano aprovou pela lista do
+    @orquestrador em vez do texto — e aprovou uma issue que o @techlead recomendava
+    cancelar.
+
+    Dois dos seis nao emitiram marcador nenhum, entao o fallback nao e luxo: sem
+    marcador devolve a cauda, que e onde o resumo esta mesmo quando nao se anuncia.
+    """
+    try:
+        todas = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    # de baixo para cima: vale o ULTIMO marcador. Bot que fala de "resumo" no meio da
+    # investigacao nao deve cortar o texto ali.
+    for i in range(len(todas) - 1, -1, -1):
+        if MARCA_RESUMO.match(todas[i]):
+            corpo = "\n".join(todas[i + 1:]).strip()
+            if corpo:
+                return corpo
+    return "\n".join(todas[-linhas:]).strip()
+
+
 def artefato(root, m, nome):
     v = ((m.get("artefatos") or {}).get(nome) or "")
     if not v:
@@ -267,17 +300,100 @@ def toques(key):
     return f"/aprovar_{t}\n/ajustar_{t}\n/rejeitar_{t}"
 
 
+ESPERA_LOTE = 1200   # 20 min: depois disso manda o que tem, mesmo com irmao pendurado
+
+
+def _pasta_lote(root):
+    d = root / ".hermes" / "gates-pendentes"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _irmas(root, call):
+    """{key: estado} das issues que nasceram da mesma call."""
+    fora = {}
+    for mf in (root / ".hermes" / "tasks").glob("*/manifest.yaml"):
+        try:
+            mm = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        g1 = ((mm.get("aprovacoes") or {}).get("gate1") or {})
+        if g1.get("herdado_de") == call:
+            fora[mm.get("task_id")] = mm.get("estado")
+    return fora
+
+
+def lote_gate2(root, m, key, resumo, story):
+    """Junta os GATE 2 da mesma call numa mensagem so.
+
+    Em 01/10 as seis issues da skymark chegaram ao GATE 2 em 70 segundos, cada uma como
+    mensagem propria de 40+ linhas. O humano respondeu "aprovado" em texto livre, o
+    @orquestrador listou os seis comandos achatando as perguntas em seis linhas iguais,
+    e a OUVI-154 — em que o @techlead recomendava CANCELAR — foi aprovada junto.
+
+    Seguram-se os gates enquanto alguma irma da mesma call ainda esta em `SPECIFYING`
+    (o @techlead dela ainda trabalhando). A ultima a terminar manda o lote. Nao ha
+    daemon nem timer: cada rodada reavalia, e o teto de 1200s existe para o caso de
+    uma irma morrer em SPECIFYING e nunca liberar o lote.
+
+    Devolve (texto, anexo) quando e hora de mandar, ou (None, None) enquanto segura.
+    """
+    call = ((m.get("aprovacoes") or {}).get("gate1") or {}).get("herdado_de")
+    if not call:
+        return None, None            # issue solta: quem chamou manda como sempre
+    arq = _pasta_lote(root) / f"{call}.json"
+    try:
+        guardado = json.loads(arq.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        guardado = {"itens": {}}
+    # `em` e a hora da PRIMEIRA vez. Renovar a cada rodada faria o teto de
+    # ESPERA_LOTE nunca vencer: a issue que volta ao gate (ajuste, retry)
+    # empurraria o prazo para frente e o lote ficaria preso num arquivo que
+    # ninguem olha.
+    ja = (guardado["itens"].get(key) or {}).get("em")
+    guardado["itens"][key] = {"em": ja or time.time(), "resumo": resumo,
+                              "story": story,
+                              "objetivo": (m.get("objetivo") or "")[:80]}
+    arq.write_text(json.dumps(guardado, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    irmas = _irmas(root, call)
+    faltam = sorted(k for k, e in irmas.items() if e == "SPECIFYING")
+    velho = min((i["em"] for i in guardado["itens"].values()), default=time.time())
+    if faltam and time.time() - velho < ESPERA_LOTE:
+        return None, None
+
+    arq.unlink(missing_ok=True)
+    itens = guardado["itens"]
+    quantas = ("1 issue esperando você" if len(itens) == 1
+               else f"{len(itens)} issues esperando você")
+    cab = f"🚦 GATE 2 · [{root.name}] {call} · {quantas}"
+    if faltam:
+        cab += f"\n\n⚠️ {', '.join(faltam)} travou em SPECIFYING e não entrou neste lote."
+    blocos = []
+    for k in sorted(itens):
+        it = itens[k]
+        bloco = f"── {k} · {it.get('objetivo') or ''}\n{it['resumo']}"
+        if it.get("story"):
+            bloco += f"\nStory: {it['story']}"
+        blocos.append(bloco)
+    rodape = ("Por issue: `/aprovar <KEY>` · `/ajustar <KEY> <o quê>` · "
+              "`/rejeitar <KEY> <motivo>` · `/atendido <KEY> <motivo>` (já está pronto)")
+    return "\n\n".join([cab] + blocos + [rodape]), None
+
+
 def aviso_final(reg, m):
     """O que o humano precisa saber depois da rodada — gate, falha ou silêncio suspeito."""
     root, key, bot = Path(reg["projeto"]), reg["key"], reg["bot"]
     antes, depois = reg["estado_antes"], reg["estado_depois"]
-    resposta = Path(reg["saida"]).read_text(encoding="utf-8", errors="replace").strip() \
+    resposta = resumo_da_rodada(reg["saida"])
+    bruto = Path(reg["saida"]).read_text(encoding="utf-8", errors="replace").strip() \
         if Path(reg["saida"]).is_file() else ""
     cab = f"[{root.name}] {key}"
 
     if reg["status"] != "ok":
         motivo = "passou do tempo" if reg["status"] == "timeout" else f"saiu com {reg['exit']}"
-        return (f"❌ {cab} · @{bot} {motivo}.\n\n{cauda(reg['erros']) or resposta[-800:]}\n\n"
+        # Falha quer o fim do log cru: o bot pode nem ter chegado a escrever resumo.
+        return (f"❌ {cab} · @{bot} {motivo}.\n\n{cauda(reg['erros']) or bruto[-800:]}\n\n"
                 f"Log: {reg['erros']}"), None
 
     if depois == "AWAITING_APPROVAL" and antes != depois:
@@ -289,6 +405,12 @@ def aviso_final(reg, m):
         return (f"🚦 GATE 1 · {cab}\n\n{resposta}\n\n" + toques(key)), \
             artefato(root, m, "proposta")
     if depois == "AWAITING_SPEC_APPROVAL" and antes != depois:
+        story = (m.get("artefatos") or {}).get("story")
+        texto, anexo = lote_gate2(root, m, key, resposta, story)
+        if texto:
+            return texto, anexo
+        if ((m.get("aprovacoes") or {}).get("gate1") or {}).get("herdado_de"):
+            return None, None        # segurando o lote; a ultima irma manda tudo
         return (f"🚦 GATE 2 · {cab}\n\n{resposta}\n\n" + toques(key)), \
             artefato(root, m, "story")
     if depois == "AWAITING_REVIEW" and antes != depois:
@@ -312,6 +434,20 @@ def aviso_final(reg, m):
         ult = (m.get("historico") or [{}])[-1]
         motivo = (ult.get("evidencias") or {}).get("motivo") or ult.get("por") or "?"
         return f"⛔ {cab} BLOCKED por @{bot}: {motivo}\n\n{resposta[-1500:]}", None
+    # GATE 2 dispensado: o @techlead disse que nao havia o que decidir e seguiu. Nao e
+    # gate, e aviso — mas tem de chegar, porque uma etapa de controle deixou de
+    # acontecer e quem precisa poder discordar e o humano, antes de o dev terminar.
+    # Procura no historico, nao em `depois`: na mesma rodada ele costuma seguir para
+    # SPEC_APPROVED e IMPLEMENTING, e o estado final nao conta essa historia.
+    disp = next((h for h in reversed(m.get("historico") or [])
+                 if h.get("de") == "SPECIFYING" and h.get("para") == "SPEC_APPROVED"), None)
+    if disp and antes == "SPECIFYING" and depois != "SPECIFYING":
+        porque = (disp.get("evidencias") or {}).get("sem_decisoes") or "nao disse"
+        return (f"➡️ {cab} · GATE 2 dispensado — nada a decidir, foi direto para o dev.\n\n"
+                f"Motivo (@{disp.get('por')}): {porque}\n\n{resposta}\n\n"
+                f"Discorda? `/ajustar {key} <o que mudar>` traz a story de volta; "
+                f"`/atendido {key} <motivo>` encerra se o trabalho nao deveria existir."), \
+            artefato(root, m, "story")
     if (bot in DEVE_MOVER or (bot == "po" and antes == "TRIAGED")) and antes == depois:
         return (f"⚠️ {cab} · @{bot} terminou sem mover a tarefa (segue em {depois}).\n\n"
                 f"{resposta[-1500:]}\n\nSaída: {reg['saida']}"), None
@@ -336,7 +472,13 @@ Para passar o trabalho adiante: escreva o próximo handoff em
 trabalho, e não mande o gate para o humano: quem manda é o hermes-delegar, quando o
 estado chegar lá.
 
-Termine com um resumo de no máximo 8 linhas — ele vai para o humano no Telegram.
+Termine com uma linha contendo só `Resumo:` e, abaixo dela, no máximo 8 linhas — é
+só isso que vai para o humano no Telegram, o resto da sua saída não vai. Sem essa
+linha, o Telegram recebe o rabo da sua saída como estiver.
+
+Se há algo que só o humano decide, o resumo tem que **dizer qual é a pergunta e quais
+são as opções**. Resumo que termina em "aguardando aprovação" não diz nada: quem lê
+precisa saber o que está respondendo.
 
 --- handoff ---
 {conteudo}

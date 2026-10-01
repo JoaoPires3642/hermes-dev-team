@@ -84,7 +84,7 @@ TRAVA = re.compile(
     # aqui custa um `--forcar` do humano; falso negativo custa uma trava apagada.
     r"\bnunca\b|\bjamais\b|"
     r"\bn[ãa]o\s+(?:mov|mex|fa[çc]|tent|aprov|pod|dev|commit|toqu|entr|escrev|"
-    r"cri|registr|alter|execut|insist|adivinh|chut)\w*|"
+    r"cri|registr|alter|execut|insist|adivinh|chut|mand|envi|dispar|merge|fech|quebr|estim)\w*|"
     r"\bproibid|\brecus\w*|\bbloquead\w*|\bvedad\w*|"
     r"\bexige\s+(?:OK|autoriza|aprova)|\bs[óo]\s+(?:o\s+)?humano|"
     r"\bs[óo]\s+a\s+revis|\bnever\b|\bdoes\s+NOT\b|\bdo\s+not\b|\bmust\s+not\b",
@@ -423,6 +423,23 @@ def _degrau(m):
     return next((v for k, v in DEGRAU.items() if k in m), None)
 
 
+def _sobreviveu(trecho, depois):
+    """A trava que saiu desta linha continua em algum lugar do arquivo?
+
+    Trava reescrita ou movida de secao nao e trava removida. Sem esta checagem toda
+    reformatacao de SOUL exigiria `--forcar`, e forcar viraria habito — que e como um
+    portao morre: nao desligado, mas sempre contornado.
+
+    Compara o PEDACO que casou com a TRAVA, nao a linha: "Voce nao manda." e
+    "O gate sai sozinho. Voce nao manda." sao a mesma regra em linhas diferentes.
+    """
+    m = TRAVA.search(trecho)
+    if not m:
+        return True
+    alvo = " ".join(m.group(0).split()).lower()
+    return alvo in " ".join(depois.split()).lower()
+
+
 def _modelos_de(arq, texto):
     """{bot: (modelo, fixo)} declarado num arquivo, seja config.yaml ou o gerador.
 
@@ -524,10 +541,10 @@ def cmd_guardiao(a):
     negar, avisar = [], []
     for arq, (saiu, entrou) in mudancas.items():
         padrao = arq.replace("\\", "/").endswith("config.yaml")
+        depois_txt = git("show", ":%s" % arq, check=False).stdout
         if padrao or arq.replace("\\", "/").endswith("scripts/gen_bots.py"):
             antes = git("show", "HEAD:%s" % arq, check=False).stdout
-            depois = git("show", ":%s" % arq, check=False).stdout
-            for m in _catraca_modelo(arq, antes, depois):
+            for m in _catraca_modelo(arq, antes, depois_txt):
                 negar.append((arq, m))
         for l in saiu:
             # `config.yaml` guarda a autoridade em forma de maquina, nao de prosa: uma
@@ -537,7 +554,7 @@ def cmd_guardiao(a):
             # Acrescentar deny continua livre — so a saida e barrada.
             if padrao and _ENTRADA_DENY.match(l):
                 negar.append((arq, l.strip()))
-            elif TRAVA.search(l):
+            elif TRAVA.search(l) and not _sobreviveu(l, depois_txt):
                 negar.append((arq, l.strip()))
         for l in entrou:
             if PERMISSAO.search(l):
