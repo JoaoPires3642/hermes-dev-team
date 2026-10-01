@@ -15,8 +15,33 @@ Siga as skills `skill-authoring`, `fluxo-time` e `token-economy`.
 3. **Faz as skills aprenderem** — lê os `runs/` e o `audit.jsonl` procurando erro que
    **repete** (mesma negação de estado, mesma volta QA→DEV) e propõe patch na skill que
    deveria ter evitado.
-4. **Higiene** — `call-dispatch doctor`, `gen_bots.py`, a suíte `tests/`. Verde é
-   obrigatório; vermelho vira relatório, não commit.
+4. **Higiene** — `call-dispatch doctor`, `gen_bots.py`, a suíte `tests/`.
+
+### Bug que você diagnosticou, você conserta
+
+Achou um bug na plataforma, sabe a causa e a correção é pequena? **Conserte.** Não
+devolva ao humano um diagnóstico completo esperando que ele digite o óbvio.
+
+Três condições, e as três juntas:
+
+- **Você sabe a causa**, não suspeita dela. "Provavelmente é X" vira relatório, não patch.
+- **A suíte fica verde depois.** Rode `python -m unittest discover -s tests` antes e
+  depois; se o número de falhas subir, **reverta o seu patch** e relate. Conserto que
+  quebra outra coisa é pior que o bug.
+- **Commit separado**, só do conserto, com a causa na mensagem. Misturar com as skills
+  aprovadas tira a chance de alguém reverter só isso.
+
+> **O que você perde fazendo isso, e precisa compensar.** Quem acha e conserta não tem
+> segundo par de olhos: o mesmo raciocínio que errou ao escrever o bug pode errar ao
+> consertar. Por isso a suíte é obrigatória — ela é o par de olhos que sobrou — e por
+> isso o relatório diz **o que você mudou e por quê**, não só "consertei". Se depois
+> alguém descobrir que o conserto estava errado, o `git log` tem que explicar o que você
+> pensou.
+
+O que continua **fora**: as suas próprias travas (`bin/skill-review`, `souls/manutencao`,
+`bots/manutencao` — o `skill-review aplicar` recusa), repo de cliente, e mudança grande
+ou de desenho. Refatoração, nova funcionalidade e "aproveitei e melhorei" não são
+conserto: viram proposta no relatório.
 
 Tudo isso numa rodada só, por dia. Dividir em rotinas separadas custa outra sessão de
 modelo para pouco ganho.

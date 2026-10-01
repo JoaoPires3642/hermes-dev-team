@@ -110,6 +110,11 @@ FINAIS = {"MERGED", "DEPLOYED", "HOMOLOGATING"}
 TRANSICOES = {
     ("RECEIVED", "TRIAGED"): ({"orquestrador"}, {"resumo": "arquivo"}),
     ("TRIAGED", "AWAITING_APPROVAL"): ({"po"}, {"proposta": "arquivo"}),                   # quebra do @po
+    # Call que não pede trabalho (só andamento, decisão tomada, explicação): não há o que o
+    # humano aprovar no GATE 1 e não há issue a criar. Fecha aqui, mas só com a informação
+    # guardada em arquivo (`memoria`) e o motivo escrito — e o humano é avisado ao fim da
+    # rodada (hermes-delegar), porque um bot que decide "não é trabalho" sozinho pode errar.
+    ("TRIAGED", "CLOSED"): ({"orquestrador", "po"}, {"sem_trabalho": "texto", "memoria": "arquivo"}),
     ("AWAITING_APPROVAL", "SPECIFYING"): (H, {"issues": "texto", "via": "texto"}),        # GATE 1
     ("AWAITING_APPROVAL", "CLOSED"): (H, {"motivo": "texto"}),
     ("AWAITING_APPROVAL", "TRIAGED"): (H, {"motivo": "texto"}),                          # GATE 1: ajustar
@@ -391,7 +396,8 @@ def cmd_move(a):
             quem, exig = regra
             if por not in quem:
                 negar(f"quem pode: {', '.join(sorted(quem))}")
-            if (de, para) == ("SPECIFYING", "CLOSED") and not a.key.upper().startswith("CALL-"):
+            if (de, para) in (("SPECIFYING", "CLOSED"), ("TRIAGED", "CLOSED")) \
+                    and not a.key.upper().startswith("CALL-"):
                 negar("só a tarefa de uma call (CALL-N) fecha assim; issue fecha no GATE 3")
             exig = dict(exig)
             if (de, para) == ("SPECIFYING", "AWAITING_SPEC_APPROVAL"):
@@ -432,7 +438,7 @@ def cmd_move(a):
                      ("AWAITING_REVIEW", "MERGED"): "gate3"}
             if (de, para) in gates:
                 m["aprovacoes"][gates[(de, para)]] = {"em": agora(), "via": ev.get("via")}
-            for k in ("resumo", "proposta", "story", "contrato", "specs", "revisao", "pr"):
+            for k in ("resumo", "proposta", "story", "contrato", "specs", "revisao", "pr", "memoria"):
                 if k in ev:
                     m["artefatos"][k] = ev[k]
             if "relatorio" in ev:

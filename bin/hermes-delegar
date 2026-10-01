@@ -297,8 +297,16 @@ def aviso_final(reg, m):
                 f"PR para você revisar e fazer o merge: {pr}\n\n{resposta[-1200:]}"), None
     if depois == "CLOSED" and antes != depois and key.upper().startswith("CALL-"):
         ult = (m.get("historico") or [{}])[-1]
-        issues = (ult.get("evidencias") or {}).get("issues") or "?"
-        return (f"✅ {cab} concluída: issues {issues} criadas e com o @techlead.\n\n"
+        ev = ult.get("evidencias") or {}
+        if ev.get("sem_trabalho"):
+            # Quem decide "não é trabalho" é um bot; o humano não aprovou nada, então é ele
+            # quem precisa poder desfazer. Sem este aviso a call sumiria calada.
+            return (f"🗒 {cab} · sem trabalho a criar, nenhuma issue.\n\n"
+                    f"Motivo (@{ult.get('por')}): {ev['sem_trabalho']}\n"
+                    f"Guardado em: {ev.get('memoria') or '?'}\n\n"
+                    f"Se era trabalho de verdade, a call precisa ser reaberta por você: "
+                    f"ainda não existe /reabrir, então peça ao @manutencao."), None
+        return (f"✅ {cab} concluída: issues {ev.get('issues') or '?'} criadas e com o @techlead.\n\n"
                 f"{resposta[-1200:]}"), None
     if depois == "BLOCKED" and antes != depois:
         ult = (m.get("historico") or [{}])[-1]

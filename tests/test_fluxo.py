@@ -280,6 +280,41 @@ class TestHermesTask(Base):
         r = self.ok(self.a.task("move", str(self.a.acme), "CALL-9", "CLOSED", "--by", "po", "--ev", "issues=X"))
         self.assertIn("não existe no TUPLE", r.stdout)
 
+    def test_call_sem_trabalho_fecha_na_triagem_com_memoria(self):
+        # call só de andamento virava proposta no GATE 1 e issue no board. A saída existe,
+        # mas exige o motivo e a informação guardada em arquivo — senão a call sumiria.
+        self.nova("CALL-8", "TRIAGED")
+        mem = self.a.acme / "memoria.md"
+        mem.write_text("andamento da sprint", encoding="utf-8")
+        def mv(*ev, by="orquestrador", key="CALL-8"):
+            args = [x for e in ev for x in ("--ev", e)]
+            return self.a.task("move", str(self.a.acme), key, "CLOSED", "--by", by, *args)
+        self.negado(mv("memoria=" + str(mem)), "sem_trabalho")                      # sem motivo
+        self.negado(mv("sem_trabalho=so andamento"), "memoria")                     # nada guardado
+        self.negado(mv("sem_trabalho=x", "memoria=" + str(self.a.acme / "nao-existe.md")), "memoria")
+        self.negado(mv("sem_trabalho=x", "memoria=" + str(mem), by="pm"), "quem pode")
+        self.ok(mv("sem_trabalho=so andamento", "memoria=" + str(mem)))
+        m = self.a.manifest(self.a.acme, "CALL-8")
+        self.assertEqual(m["estado"], "CLOSED")
+        self.assertEqual(m["artefatos"]["memoria"], str(mem))
+
+    def test_sem_trabalho_nao_vale_para_issue(self):
+        # issue real nunca fecha por aqui: o GATE 3 é a única saída dela
+        self.nova("ACME-8", "TRIAGED")
+        mem = self.a.acme / "memoria.md"
+        mem.write_text("x", encoding="utf-8")
+        self.negado(self.a.task("move", str(self.a.acme), "ACME-8", "CLOSED", "--by", "po", "--ev",
+                                "sem_trabalho=x", "--ev", "memoria=" + str(mem)), "só a tarefa de uma call")
+
+    def test_sem_trabalho_so_a_partir_da_triagem(self):
+        # depois do GATE 1 o humano já aprovou trabalho: fechar "sem trabalho" seria desfazer isso
+        self.nova("CALL-7", "SPECIFYING")
+        mem = self.a.acme / "memoria.md"
+        mem.write_text("x", encoding="utf-8")
+        r = self.a.task("move", str(self.a.acme), "CALL-7", "CLOSED", "--by", "po",
+                        "--ev", "sem_trabalho=x", "--ev", "memoria=" + str(mem))
+        self.negado(r, "faltou evidência: issues")                                  # exige issues, não o atalho
+
 
 # ====================================================================== hermes-delegar
 class TestDelegar(Base):
@@ -340,6 +375,26 @@ class TestDelegar(Base):
     def test_terminar_sem_mover_avisa(self):
         self.a.delegar("orquestrador", str(self.a.acme), "ACME-1", str(self.h), "--esperar")
         self.assertIn("terminou sem mover", self.a.envios()[-1]["texto"])
+
+    def test_call_sem_trabalho_avisa_o_humano_com_o_motivo(self):
+        # o humano não aprovou nada: quem decidiu "não é trabalho" foi um bot, e se o aviso
+        # não dissesse isso a call sumiria calada. Sem prometer comando que não existe.
+        from importlib.machinery import SourceFileLoader
+        mod = types.ModuleType("hd")
+        SourceFileLoader("hd", str(REPO / "bin" / "hermes-delegar")).exec_module(mod)
+        reg = {"projeto": str(self.a.acme), "key": "CALL-5", "bot": "orquestrador", "status": "ok",
+               "estado_antes": "TRIAGED", "estado_depois": "CLOSED", "saida": os.devnull, "erros": os.devnull}
+        m = {"historico": [{"por": "orquestrador", "evidencias": {"sem_trabalho": "so andamento da sprint",
+                                                                   "memoria": "memory/2026-10-sprint.md"}}]}
+        texto, anexo = mod.aviso_final(reg, m)
+        self.assertIn("sem trabalho a criar", texto)
+        self.assertIn("so andamento da sprint", texto)
+        self.assertIn("memory/2026-10-sprint.md", texto)
+        self.assertNotIn("criadas", texto)
+        self.assertNotIn("/reabrir_", texto)
+        # fechamento normal (issues criadas) continua com a mensagem de sempre
+        m["historico"][0]["evidencias"] = {"issues": "ACME-1,ACME-2"}
+        self.assertIn("issues ACME-1,ACME-2 criadas", mod.aviso_final(reg, m)[0])
 
     def test_rodada_perdida_e_reconciliada(self):
         runs = self.a.acme / ".hermes" / "runs" / "ACME-1"
