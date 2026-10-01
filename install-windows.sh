@@ -334,8 +334,8 @@ printf 'python "%s" varrer%s\n' "$REPO_WIN\\bin\\call-dispatch" "$CR" >>"$BIN_DI
 printf 'CreateObject("WScript.Shell").Run """%s""", 0, False%s\n' \
   "$BIN_WIN\\hermes-calls.cmd" "$CR" >"$BIN_DIR/hermes-calls.vbs"
 
-MSYS_NO_PATHCONV=1 schtasks /Create /F /SC MINUTE /MO 15 /TN "hermes-dev-team - openwhispr-notes" /TR "\"$BIN_WIN\\hermes-calls.vbs\"" >/dev/null 2>&1 \
-  || warn "não consegui agendar: rode no cmd -> schtasks /Create /F /SC MINUTE /MO 15 /TN \"hermes-dev-team - openwhispr-notes\" /TR \"$BIN_WIN\\hermes-calls.vbs\""
+MSYS_NO_PATHCONV=1 schtasks /Create /F /SC MINUTE /MO 15 /TN "hermes-dev-team - openwhispr-notes" /TR "wscript.exe //B //Nologo \"$BIN_WIN\\hermes-calls.vbs\"" >/dev/null 2>&1 \
+  || warn "não consegui agendar: rode no cmd -> schtasks /Create /F /SC MINUTE /MO 15 /TN \"hermes-dev-team - openwhispr-notes\" /TR \"wscript.exe //B //Nologo \\\"$BIN_WIN\\\\hermes-calls.vbs\\\"\""
 
 # Resumo do dia às 17h (dias úteis), pelo bot do @pm. HERMES_DAILY_HORA muda o horário.
 # Mesma armadilha do hermes-calls.cmd, e eu corrigi um e esqueci o outro: a tarefa
@@ -354,7 +354,7 @@ printf 'CreateObject("WScript.Shell").Run """%s""", 0, False%s\n' \
   "$BIN_WIN\\hermes-daily.cmd" "$CR" >"$BIN_DIR/hermes-daily.vbs"
 
 MSYS_NO_PATHCONV=1 schtasks /Create /F /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST "${HERMES_DAILY_HORA:-17:00}" \
-  /TN "hermes-dev-team - resumo-do-dia" /TR "\"$BIN_WIN\\hermes-daily.vbs\"" >/dev/null 2>&1 \
+  /TN "hermes-dev-team - resumo-do-dia" /TR "wscript.exe //B //Nologo \"$BIN_WIN\\hermes-daily.vbs\"" >/dev/null 2>&1 \
   || warn "não consegui agendar o resumo do dia (schtasks)"
 
 say "Pronto: ${BOTS[*]}"
