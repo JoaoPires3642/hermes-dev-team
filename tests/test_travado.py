@@ -23,6 +23,7 @@ import subprocess
 import tempfile
 import time
 import types
+import datetime as dt
 import unittest
 from pathlib import Path
 
@@ -40,41 +41,39 @@ def carregar(nome):
     return mod
 
 
-class RodadaMuda(unittest.TestCase):
-    """O teto de silencio existe, mas vem DESLIGADO — e a historia de por que.
+class RodadaParada(unittest.TestCase):
+    """Rodada parada x rodada lenta: o sinal e a sessao do kiro, nao o `out.md`.
 
-    Eu liguei esse teto em 8 minutos olhando tres rodadas de 01/10 que ficaram 45 min com
-    `out.md` em zero byte, e concluí que a sessao do kiro nao subia. Era conclusao errada
-    sobre dado certo: o `out.md` so e escrito QUANDO A RODADA TERMINA. Nas quatro que
-    deram certo no mesmo dia o mtime do arquivo cai nos ultimos segundos da rodada —
-    OUVI-148 dev-back gravou 13:39:00 para um fim 13:39:12, e a OUVI-149 dev-front ficou
-    44 minutos calada antes de escrever 15 KB de uma vez.
+    A primeira versao disto olhava `out.md` e matava rodada boa. `out.md` so e escrito
+    QUANDO A RODADA TERMINA: nas quatro que deram certo em 01/10 o mtime cai nos ultimos
+    segundos (OUVI-148 dev-back gravou 13:39:00 para um fim 13:39:12), e a OUVI-149
+    dev-front ficou 44 minutos calada antes de escrever 15 KB de uma vez. Com um teto de
+    8 min sobre esse arquivo eu matei a OUVI-149 as 14:56:06, quando a sessao do kiro
+    dela tinha 351 KB escritos ate 14:56:02.
 
-    Com o teto ligado eu matei a rodada da OUVI-149 as 14:56:06. Ela estava trabalhando:
-    o jsonl da sessao do kiro tinha 351 KB e 58 entradas de Prompt/AssistantMessage/
-    ToolResults, escritas ate 14:56:02 — quatro segundos antes. Teria matado as quatro
-    boas tambem.
-
-    Entao o mecanismo fica, desligado, e estes testes guardam as duas coisas: que ele nao
-    dispara no padrao, e que se alguem religar com um sinal melhor ele ainda funciona.
+    O jsonl do kiro cresce turno a turno. As quatro rodadas que morreram naquele dia
+    tinham a sessao escrita de 3 a 22 segundos antes do kill — nenhuma estava travada.
     """
 
     def setUp(self):
         self.hd = carregar("hermes-delegar")
+        self.kiro = Path(tempfile.mkdtemp())
+        self.hd._dir_kiro = lambda: self.kiro
         d = Path(tempfile.mkdtemp())
         self.reg = {"saida": str(d / "s.out.md"), "erros": str(d / "s.err.log"),
-                    "timeout_min": 45, "cmd": ["x"]}
+                    "timeout_min": 45, "cmd": ["x"], "rodada": "20261001-144745-dev-front",
+                    "inicio": dt.datetime.now().astimezone().isoformat(timespec="seconds")}
         for k in ("saida", "erros"):
             Path(self.reg[k]).write_text("", encoding="utf-8")
 
-    class Falso:
-        """Processo que nunca termina, ou que termina na n-esima espera."""
+    def sessao(self, nome, primeira_linha, corpo=""):
+        f = self.kiro / (nome + ".jsonl")
+        f.write_text(primeira_linha + "\n" + corpo, encoding="utf-8")
+        return f
 
+    class Falso:
         def __init__(self, termina_em=None, code=0):
-            self.termina_em = termina_em
-            self.code = code
-            self.pid = 1
-            self.esperas = 0
+            self.termina_em, self.code, self.pid, self.esperas = termina_em, code, 1, 0
 
         def wait(self, timeout=None):
             self.esperas += 1
@@ -82,40 +81,44 @@ class RodadaMuda(unittest.TestCase):
                 return self.code
             raise subprocess.TimeoutExpired("x", timeout)
 
-    def test_vem_desligado(self):
-        # O padrao e 0 e 0 quer dizer desligado — nao "mata na hora", que e o que um
-        # `>= MUDO_MIN * 60` sem guarda faria.
-        self.assertEqual(0, carregar("hermes-delegar").MUDO_MIN)
+    # ------------------------------------------------------------ achar a sessao
+    def test_acha_pelo_id_da_rodada_que_vai_no_prompt(self):
+        self.sessao("aaa", '{"kind":"Prompt","data":"... 20261001-144745-dev-front ..."}')
+        f = self.hd.achar_sessao_kiro("20261001-144745-dev-front", time.time() - 60)
+        self.assertIsNotNone(f)
+        self.assertEqual("aaa.jsonl", f.name)
 
-    def test_desligado_so_o_timeout_total_vale(self):
-        self.hd.MUDO_MIN = 0
-        self.reg["timeout_min"] = 0
-        with self.assertRaises(subprocess.TimeoutExpired):
-            self.hd.esperar(self.Falso(), self.reg)
+    def test_nao_confunde_sessao_de_outra_rodada(self):
+        # Em 01/10 a sessao c2bd9aaf citava OUVI-148, 149 e 154 no mesmo prompt: a KEY
+        # nao distingue, o id da rodada sim.
+        self.sessao("outra", '{"kind":"Prompt","data":"OUVI-149 OUVI-148 OUVI-154"}')
+        self.assertIsNone(self.hd.achar_sessao_kiro("20261001-144745-dev-front",
+                                                    time.time() - 60))
 
-    def test_desligado_nao_mata_rodada_calada_que_ainda_tem_prazo(self):
-        # O caso real: 44 minutos de silencio e depois 15 KB de trabalho.
-        self.hd.MUDO_MIN = 0
-        p = self.Falso(termina_em=3)
-        self.assertEqual(0, self.hd.esperar(p, self.reg))
+    def test_ignora_sessao_anterior_a_rodada(self):
+        # Sessao de rodada anterior com o mesmo id (retry) nao pode ser confundida com a
+        # desta. `os.utime` nao mexe no creation time no Windows, entao o teste anda o
+        # outro lado: pergunta por uma rodada que comecou DEPOIS do arquivo existir.
+        self.sessao("velha", '{"kind":"Prompt","data":"20261001-144745-dev-front"}')
+        self.assertIsNone(self.hd.achar_sessao_kiro("20261001-144745-dev-front",
+                                                    time.time() + 60))
 
-    def test_processo_que_termina_devolve_o_codigo(self):
-        self.assertEqual(0, self.hd.esperar(self.Falso(termina_em=2), self.reg))
+    def test_sem_diretorio_do_kiro_nao_quebra(self):
+        self.hd._dir_kiro = lambda: Path(tempfile.mkdtemp()) / "nao-existe"
+        self.assertIsNone(self.hd.achar_sessao_kiro("x", time.time()))
 
-    def test_ligado_dispara_no_silencio(self):
-        self.hd.MUDO_MIN = 1.0 / 60          # um segundo, para nao depender de relogio
-        with self.assertRaises(self.hd.Mudo):
-            self.hd.esperar(self.Falso(), self.reg)
-
-    def test_ligado_nao_mata_quem_escreve(self):
-        self.hd.MUDO_MIN = 1.0 / 60
+    # ------------------------------------------------------------ o teto
+    def test_sessao_que_cresce_nao_e_morta(self):
+        # O caso que eu matei: 351 KB em 8 minutos. Ritmo nao e parada.
+        self.hd.SEM_PROGRESSO_MIN = 1.0 / 60
+        f = self.sessao("viva", '{"kind":"Prompt","data":"20261001-144745-dev-front"}')
         p = self.Falso()
         passos = []
 
         def wait(timeout=None):
             passos.append(1)
-            with io.open(self.reg["saida"], "a", encoding="utf-8") as f:
-                f.write("linha\n")
+            with open(f, "a", encoding="utf-8") as fh:
+                fh.write('{"kind":"ToolResults"}\n')
             if len(passos) >= 4:
                 return 0
             raise subprocess.TimeoutExpired("x", timeout)
@@ -123,15 +126,77 @@ class RodadaMuda(unittest.TestCase):
         p.wait = wait
         self.assertEqual(0, self.hd.esperar(p, self.reg))
 
-    def test_o_aviso_diz_que_a_sessao_nao_subiu(self):
-        # Se alguem religar o teto, a mensagem tem de dizer a causa certa: "passou do
-        # tempo" mandaria o humano procurar trabalho que nao existe.
-        reg = dict(self.reg, status="mudo", projeto=str(Path(tempfile.mkdtemp())),
+    def test_sessao_que_para_de_crescer_morre(self):
+        self.hd.SEM_PROGRESSO_MIN = 1.0 / 60
+        self.sessao("parada", '{"kind":"Prompt","data":"20261001-144745-dev-front"}')
+        with self.assertRaises(self.hd.SemProgresso):
+            self.hd.esperar(self.Falso(), self.reg)
+
+    def test_bot_sem_kiro_nao_e_julgado_por_silencio(self):
+        # Provider anthropic nao tem sessao de kiro. Chutar silencio como morte foi
+        # exatamente o erro que isto corrige: aqui so o timeout total decide.
+        self.hd.SEM_PROGRESSO_MIN = 1.0 / 60
+        self.reg["timeout_min"] = 0
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.hd.esperar(self.Falso(), self.reg)
+
+    def test_timeout_total_continua_valendo_para_quem_progride_sem_fim(self):
+        self.hd.SEM_PROGRESSO_MIN = 999
+        self.reg["timeout_min"] = 0
+        self.sessao("eterna", '{"kind":"Prompt","data":"20261001-144745-dev-front"}')
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.hd.esperar(self.Falso(), self.reg)
+
+    def test_processo_que_termina_devolve_o_codigo(self):
+        self.assertEqual(0, self.hd.esperar(self.Falso(termina_em=2), self.reg))
+
+    def test_registro_guarda_a_sessao_e_o_tamanho(self):
+        # Para o aviso poder dizer "morta com N KB" em vez de so "morta".
+        self.hd.SEM_PROGRESSO_MIN = 1.0 / 60
+        self.sessao("marcada", '{"kind":"Prompt","data":"20261001-144745-dev-front"}',
+                    corpo='{"kind":"ToolResults"}\n' * 20)
+        with self.assertRaises(self.hd.SemProgresso):
+            self.hd.esperar(self.Falso(), self.reg)
+        self.assertIn("marcada.jsonl", self.reg.get("sessao_kiro", ""))
+        self.assertGreater(self.reg.get("kiro_bytes", 0), 0)
+
+    def test_o_aviso_diz_que_parou_de_progredir(self):
+        reg = dict(self.reg, status="parado", projeto=str(Path(tempfile.mkdtemp())),
                    key="X-1", bot="dev-front", estado_antes="IMPLEMENTING",
                    estado_depois="IMPLEMENTING", exit=None)
         (Path(reg["projeto"]) / ".hermes").mkdir(parents=True, exist_ok=True)
         texto, _ = self.hd.aviso_final(reg, {})
-        self.assertIn("nao escreveu nada", texto.replace("ão", "ao").replace("não", "nao"))
+        self.assertIn("parou de progredir", texto)
+        self.assertNotIn("passou do tempo", texto)
+
+    def test_o_aviso_diz_quanto_trabalho_havia(self):
+        # Rodada morta sem isto e indistinguivel de rodada que nunca comecou, porque o
+        # `out.md` so nasce no fim. Foi o que me fez diagnosticar "a sessao nao subiu".
+        reg = dict(self.reg, status="timeout", projeto=str(Path(tempfile.mkdtemp())),
+                   key="X-1", bot="dev-front", estado_antes="IMPLEMENTING",
+                   estado_depois="IMPLEMENTING", exit=None,
+                   kiro_bytes=521465, sessao_kiro=str(self.kiro / "ac95c67b.jsonl"))
+        (Path(reg["projeto"]) / ".hermes").mkdir(parents=True, exist_ok=True)
+        texto, _ = self.hd.aviso_final(reg, {})
+        self.assertIn("ESTAVA trabalhando", texto)
+        self.assertIn("509 KB", texto)
+        self.assertIn("ac95c67b", texto)
+
+    def test_aviso_sem_sessao_do_kiro_nao_inventa_evidencia(self):
+        reg = dict(self.reg, status="timeout", projeto=str(Path(tempfile.mkdtemp())),
+                   key="X-1", bot="po", estado_antes="TRIAGED", estado_depois="TRIAGED",
+                   exit=None)
+        (Path(reg["projeto"]) / ".hermes").mkdir(parents=True, exist_ok=True)
+        texto, _ = self.hd.aviso_final(reg, {})
+        self.assertNotIn("ESTAVA trabalhando", texto)
+
+    def test_o_prompt_carrega_o_id_da_rodada(self):
+        # Sem isso o supervisor nao reencontra a sessao.
+        self.assertIn("{rodada}", self.hd.PROMPT)
+
+    def test_timeout_total_nao_e_mais_45(self):
+        # 45 cortou tres rodadas em trabalho; as que couberam levaram 28, 29 e 44 min.
+        self.assertGreater(carregar("hermes-delegar").TIMEOUT_PADRAO, 45)
 
 
 class Branch(unittest.TestCase):
