@@ -124,6 +124,63 @@ def outras_faltas(faltas):
     return "\nFaltou tambem: " + ", ".join(resto) if resto else ""
 
 
+# Estados em que a tarefa ainda USA a branch dela. Fora destes (CLOSED, MERGED...) o nome ja nao
+# disputa nada: uma tarefa encerrada nao deve obrigar as novas a concordarem com ela.
+VIVOS = {"SPECIFYING", "AWAITING_SPEC_APPROVAL", "SPEC_APPROVED", "IMPLEMENTING", "TESTING",
+         "CHANGES_REQUESTED", "AWAITING_COMMIT", "AWAITING_REVIEW", "BLOCKED"}
+BASES = {"main", "master", "develop", "development", "dev"}
+
+
+def conflito_de_branch(root, key, estrategia, nome, base):
+    """Texto do motivo se `nome` contradiz a estratégia do projeto; None se está coerente.
+
+    `compartilhada` quer dizer UMA branch do time. O @techlead escreveu um nome por tarefa
+    (feature/ouvi-148-..., fix/ouvi-150-..., develop...) em seis tarefas do mesmo projeto, todas
+    `compartilhada`: o `git-bot preparar` obedecia cada uma e trocava a branch do working tree
+    por baixo de quem estava nele. Ninguém conferia que estratégia e nome combinam, e uma
+    regra que depende de o bot lembrar não é regra.
+
+    - compartilhada: o nome é o MESMO de toda tarefa viva do projeto, e não é uma base
+      protegida (bot não trabalha em main/develop).
+    - por-tarefa: o nome carrega a KEY da própria tarefa e nenhuma outra tarefa o usa."""
+    nome = (nome or "").strip()
+    if not nome:
+        return None
+    chave = key.lower()
+    if estrategia == "por-tarefa":
+        if chave not in nome.lower():
+            return (f"estratégia por-tarefa pede uma branch com a KEY da tarefa (feature/{chave}-<slug>); "
+                    f"'{nome}' não cita {key}")
+    elif estrategia == "compartilhada":
+        if nome.lower() in BASES or (base and nome == base):
+            return (f"'{nome}' é a base/protegida; a branch compartilhada é outra, a do time, "
+                    "e vem do AGENTS.md do projeto")
+    outras = {}
+    for mf in sorted((root / ".hermes" / "tasks").glob("*/manifest.yaml")):
+        if mf.parent.name == key:
+            continue
+        try:
+            o = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        if o.get("estado") not in VIVOS:
+            continue
+        b = o.get("branch") or {}
+        if b.get("nome"):
+            outras[mf.parent.name] = (b.get("estrategia"), b["nome"])
+    if estrategia == "compartilhada":
+        divergentes = {k: n for k, (e, n) in outras.items() if e == "compartilhada" and n != nome}
+        if divergentes:
+            lista = ", ".join(f"{k}→{n}" for k, n in sorted(divergentes.items())[:4])
+            return (f"branch compartilhada é UMA só e já há tarefa viva com outro nome ({lista}); "
+                    f"'{nome}' contradiz")
+    elif estrategia == "por-tarefa":
+        iguais = [k for k, (_, n) in outras.items() if n == nome]
+        if iguais:
+            return f"'{nome}' já é a branch de {', '.join(sorted(iguais))}; por-tarefa é uma branch por tarefa"
+    return None
+
+
 TRANSICOES = {
     ("RECEIVED", "TRIAGED"): ({"orquestrador"}, {"resumo": "arquivo"}),
     ("TRIAGED", "AWAITING_APPROVAL"): ({"po"}, {"proposta": "arquivo"}),                   # quebra do @po
@@ -394,6 +451,14 @@ def cmd_set(a):
             for p in partes[:-1]:
                 alvo = alvo.setdefault(p, {})
             alvo[partes[-1]] = val
+            if k in ("branch.nome", "branch.estrategia", "branch.base", "branch") and a.by.lstrip("@") != "humano":
+                b = m.get("branch") or {}
+                if isinstance(val, dict):
+                    b = {**b, **val}
+                motivo = conflito_de_branch(root, a.key, b.get("estrategia"), b.get("nome"), b.get("base"))
+                if motivo:
+                    audit(root, tipo="negado", task=a.key, por=a.by, motivo=f"set {k}: {motivo}")
+                    die(f"NEGADO: {motivo}. Use o nome do AGENTS.md do projeto; na dúvida, pergunte ao humano.")
         save(mf, m)
     audit(root, tipo="set", task=a.key, por=a.by, campos=[p.split("=")[0] for p in a.pares])
     print("ok")
@@ -447,6 +512,11 @@ def cmd_move(a):
                 sem_escopo = [d for d in m["agentes"] if d in DEVS and not (m.get("allowed_paths") or {}).get(d)]
                 if sem_escopo:
                     negar(f"defina allowed_paths para: {', '.join(sem_escopo)}")
+            if (de, para) == ("SPEC_APPROVED", "IMPLEMENTING") and ev.get("branch"):
+                b = m.get("branch") or {}
+                motivo = conflito_de_branch(root, a.key, b.get("estrategia"), ev["branch"], b.get("base"))
+                if motivo:
+                    negar(f"branch={ev['branch']}: {motivo}")
             if (de, para) == ("TESTING", "AWAITING_COMMIT") and m.get("tem_ui"):
                 exig["evidencia_visual"] = "arquivo"
             faltas = checa_ev(root, exig, ev)
