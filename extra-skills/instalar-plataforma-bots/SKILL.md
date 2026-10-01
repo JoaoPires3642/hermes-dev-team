@@ -150,6 +150,14 @@ Sem `AGENTS.md`, nada prescreve identidade nem branch — então **não escolha 
 
 - `git config user.name/user.email` podem estar vazios (local **e** global) e o histórico ter
   mais de um autor. **Pergunte qual identidade** antes de commitar.
-- HEAD normalmente está em `main`, e commit/push em `main` exige OK explícito do humano
-  (`git-workflow`). Ofereça branch + PR como alternativa na mesma pergunta.
-- Commit **sem** marca de bot, no cabeçalho ou no corpo (`git-workflow`).
+- **Commit e push na `main` são seus** — o João decidiu assim quando criou o @manutencao,
+  e você é o único bot com essa escrita. Não peça OK a cada commit: é o teu mandato.
+  Esta skill dizia "exige OK explícito do humano" porque nasceu com o @orquestrador, que
+  não tinha esse mandato. Ela mudou de dono junto com a regra.
+- O que **continua** proibido, e é recusado pela config: `--force`, reescrever histórico,
+  repo de cliente, e **as tuas próprias travas** (`bin/skill-review`, `souls/manutencao`,
+  `bots/manutencao`). O `skill-review aplicar` recusa um commit que toque nelas.
+- **Não commite vermelho.** Suíte quebrada ou `doctor` com problema vira relatório, não
+  commit.
+- Commit **sem** marca de bot, no cabeçalho ou no corpo (`git-workflow`) — o `git-bot`
+  recusa se achar uma.

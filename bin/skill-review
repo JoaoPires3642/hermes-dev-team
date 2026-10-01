@@ -63,6 +63,17 @@ TRAVA = re.compile(
     r"\bs[óo]\s+(?:humano|a\s+revis)|\bnever\b|\bdoes\s+NOT\b|\bdo\s+not\b", re.I)
 
 
+# Vocabulario de PLATAFORMA. Skill que fala disso e trabalho do dono da plataforma, nao
+# de quem orquestra cliente. Em 01/10 a `instalar-plataforma-bots` estava com o
+# @orquestrador: ele a escreveu antes do @manutencao existir, e ninguem notou depois —
+# porque `analisar` compara profile contra repo e so ve MUDANCA. Atribuicao errada
+# parada nao e diff, e por isso passava.
+PLATAFORMA_VOCAB = re.compile(
+    r"install-windows\.sh|hermes-dev-team|gateway_state|hermes gateway|"
+    r"profile install|profiles/<bot>|gen_bots\.py|shared-skills/", re.I)
+DONO_DA_PLATAFORMA = "manutencao"
+
+
 def repo() -> Path:
     return Path(os.getenv("HERMES_DEV_TEAM") or Path(__file__).resolve().parent.parent)
 
@@ -335,6 +346,34 @@ def cmd_quarentena(a):
     return OK
 
 
+def cmd_conferir(_a):
+    """Atribuicao parada: skill de plataforma morando em bot que nao e o dono dela.
+
+    `analisar` ve mudanca; isto ve o arranjo. Uma skill aprovada antes de um papel
+    existir continua no bot errado para sempre, e nenhum diff denuncia.
+    """
+    dono = donos()
+    ruins = []
+    for skill, bot in sorted(dono.items()):
+        if bot in ("*", "?", DONO_DA_PLATAFORMA):
+            continue
+        alvo = caminho_repo(skill)
+        if not alvo:
+            continue
+        texto = alvo.read_text(encoding="utf-8", errors="replace")
+        achados = sorted({m.group(0) for m in PLATAFORMA_VOCAB.finditer(texto)})
+        if len(achados) >= 3:          # mencao solta nao conta; o assunto, sim
+            ruins.append((skill, bot, achados))
+    if not ruins:
+        print("nenhuma skill de plataforma fora do @%s" % DONO_DA_PLATAFORMA)
+        return OK
+    for skill, bot, achados in ruins:
+        print("[GATE] %-30s esta com @%s e fala de plataforma" % (skill, bot))
+        print("       sinais: %s" % ", ".join(achados[:5]))
+        print("       mover para @%s, ou dizer por que fica" % DONO_DA_PLATAFORMA)
+    return OK
+
+
 def cmd_pendentes(_a):
     fs = sorted(pasta_pendentes().glob("*.json"))
     if not fs:
@@ -360,6 +399,7 @@ def main(argv):
     p = s.add_parser("quarentena")
     p.add_argument("bot"); p.add_argument("skill"); p.add_argument("--motivo")
     p.set_defaults(f=cmd_quarentena)
+    s.add_parser("conferir").set_defaults(f=cmd_conferir)
     s.add_parser("pendentes").set_defaults(f=cmd_pendentes)
     a = ap.parse_args(argv)
     try:

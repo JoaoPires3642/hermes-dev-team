@@ -231,6 +231,21 @@ for b in "${BOTS[@]}"; do
     rm -rf "$prof/skills/$x"; cp -r "$REPO/extra-skills/$x" "$prof/skills/$x"
   done <"$src/extra-skills.txt"
 
+  # Tira a extra-skill que este bot DEIXOU de ter. Sem isto, mover uma skill de um bot
+  # para outro duplica em vez de mover: ela chega no novo dono e fica no antigo para
+  # sempre. Aconteceu com `instalar-plataforma-bots` indo do @orquestrador para o
+  # @manutencao em 01/10. Só mexe no que o repo conhece como extra-skill: skill de
+  # catálogo do Hermes e a que um bot escreveu sozinho não são tocadas aqui — a
+  # segunda já foi colhida pelo skill-review no começo desta instalação.
+  for s in "$REPO"/extra-skills/*/; do
+    n=$(basename "$s")
+    [[ -d "$prof/skills/$n" ]] || continue
+    grep -qx "$n" <(tr -d '\r' <"$src/extra-skills.txt") || {
+      rm -rf "$prof/skills/$n"
+      say "  @$b: removida '$n' (não está mais na lista dele)"
+    }
+  done
+
   # .env: chave do TUPLE é por projeto, nunca aqui
   [[ -f "$prof/.env" ]] && sed -i '/^TUPLE_API_KEY=/d' "$prof/.env" || true
   [[ -f "$prof/.env" ]] && sed -i '/^TUPLE_API_KEY=/d' "$prof/.env" || true

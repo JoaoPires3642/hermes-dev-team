@@ -99,10 +99,12 @@ BOTS = {
         # cliente, então o que limita o estrago são as regras do próprio git-bot/hermes-task.
         "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
         # só ele lê entrada externa bruta, então só ele precisa saber ler ASR
+        # `instalar-plataforma-bots` saiu daqui para o @manutencao: ele a escreveu antes
+        # daquele bot existir, e ela e 100% plataforma (pull, instalador, gateway, commit
+        # no repo do time). Quem orquestra cliente nao instala a plataforma.
         "extra_skills": ["transcricao-crua", "orquestrar-rodadas-bots",
                          "auditoria-plataforma-bots",
-                         "onboarding-projeto-plataforma",
-                         "instalar-plataforma-bots"],
+                         "onboarding-projeto-plataforma"],
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],
         "kiro_rules": [
@@ -176,6 +178,10 @@ BOTS = {
         # terminal: sem ele nao roda skill-review, git, doctor nem a suite.
         # cronjob: a rodada e diaria. Sem browser: revisao se faz no diff.
         "toolsets": BASE_TOOLS + ["cronjob", "file", "terminal"],
+        # veio do @orquestrador: a skill e 100% plataforma (pull, instalador,
+        # gateway, commit no repo da plataforma) e foi escrita antes deste bot
+        # existir. Trabalho de plataforma mora com quem e dono dela.
+        "extra_skills": ["instalar-plataforma-bots"],
         "hermes_deny_extra": PLATAFORMA,
         "kiro_tools": ["read"],
         "kiro_allowed": ["read"],
