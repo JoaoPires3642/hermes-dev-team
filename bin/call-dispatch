@@ -65,6 +65,16 @@ for _fluxo in (sys.stdout, sys.stderr):
 OK, ERRO, USO = 0, 1, 2
 FILA = ".novas.txt"          # escrita pelo openwhispr-notes a cada rodada
 PASTA = ".dispatch"          # estado das calls antes de terem projeto
+# Estados que dizem "alguem esta trabalhando nisso". Quando nao ha ninguem, a tarefa
+# fica num buraco: o `pendentes` nunca a lista (ele so olha gate e BLOCKED), o board
+# mostra andamento, e ninguem e cobrado. Em 01/10 as OUVI-156 a 162 ficaram 80 minutos
+# em SPECIFYING esperando nove duvidas de negocio, e as OUVI-150/153/154 ficaram em
+# IMPLEMENTING depois de os devs morrerem no timeout. Dez tarefas paradas, zero
+# aparecendo para o humano.
+EM_TRABALHO = {"SPECIFYING", "IMPLEMENTING", "TESTING", "CHANGES_REQUESTED",
+               "AWAITING_COMMIT", "SPEC_APPROVED"}
+ORFA_MIN = int(os.getenv("HERMES_ORFA_MIN", "20"))   # minutos sem ninguem para contar
+
 MAX_AJUSTES = 3              # voltas no GATE 1 antes de pedir decisão (aprovar ou rejeitar)
 AVISO_PROFILE = os.getenv("HERMES_AVISO_PROFILE", "orquestrador")
 
@@ -681,6 +691,58 @@ def cmd_atendido(a):
     return OK
 
 
+def _orfas(proj):
+    """Tarefas em estado de trabalho com ninguem trabalhando.
+
+    "Ninguem" e verificado em duas pontas: nao ha `.lock` de rodada viva, e a ultima
+    mexida no manifest foi ha mais de ORFA_MIN minutos. O lock sozinho nao basta porque
+    o supervisor o apaga ao morrer; o tempo sozinho nao basta porque rodada longa e
+    normal (um dev levou 29 min em 01/10 e estava bem).
+    """
+    fora = []
+    for mf in sorted((proj / ".hermes" / "tasks").glob("*/manifest.yaml")):
+        try:
+            m = yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        estado = m.get("estado")
+        if estado not in EM_TRABALHO:
+            continue
+        key = m.get("task_id") or mf.parent.name
+        runs = proj / ".hermes" / "runs" / key
+        vivo = False
+        for l in (runs.glob("*.lock") if runs.is_dir() else []):
+            try:
+                pid = int(l.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                continue
+            if _pid_vivo(pid):
+                vivo = True
+                break
+        if vivo:
+            continue
+        try:
+            quieta = (time.time() - mf.stat().st_mtime) / 60
+        except OSError:
+            quieta = 0
+        if quieta >= ORFA_MIN:
+            fora.append((key, estado, int(quieta), (m.get("objetivo") or "")[:52]))
+    return fora
+
+
+def _pid_vivo(pid):
+    if sys.platform == "win32":
+        r = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", creationflags=SEM_JANELA)
+        return str(pid) in (r.stdout or "")
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def cmd_pendentes(_a):
     linhas = []
     for f in sorted(pasta_calls().glob("CALL-*.json"), key=lambda p: int(p.stem.split("-")[1])):
@@ -706,6 +768,10 @@ def cmd_pendentes(_a):
                 linhas_ = ", ".join(sorted(itens))
                 linhas.append(f"\u23f3 [{proj.name}] {f.stem}: {len(itens)} GATE 2 no lote "
                               f"({linhas_}) \u2014 sai quando a \u00faltima irm\u00e3 terminar")
+    for proj in (projetos() if cfg("HERMES_PROJETOS") else []):
+        for key, estado, quieta, obj in _orfas(proj):
+            linhas.append(f"\U0001f4a4 [{proj.name}] {key} — {estado} sem ninguém há "
+                          f"{quieta} min: {obj}")
     print("\n".join(linhas) or "Nada esperando por você.")
     return OK
 

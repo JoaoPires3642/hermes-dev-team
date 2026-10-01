@@ -300,6 +300,33 @@ def toques(key):
     return f"/aprovar_{t}\n/ajustar_{t}\n/rejeitar_{t}"
 
 
+VAGAS = int(os.getenv("HERMES_DELEGAR_VAGAS", "4"))
+# Quantas rodadas de bot podem rodar ao mesmo tempo no MESMO projeto.
+#
+# Quatro e o que o Joao disse que serve. Em 01/10 sete subiram em 2m41s no skymark
+# e tres nunca escreveram um byte — a
+# sessao do kiro era criada e o backend nunca entregava. Os quatro que trabalharam
+# brigaram pelo unico working tree e misturaram o codigo de tres tarefas. Nao e que
+# paralelo nao sirva: e que SETE nao serve, e a conta nao estava em lugar nenhum.
+#
+# Quem passa do limite ESPERA a vaga, nao e recusado: o trabalho ja foi decidido e
+# recusar aqui perderia o handoff. A espera e no supervisor, que ja roda solto, entao
+# ninguem fica preso na frente. Nao ha risco de travar todos de uma vez porque quem
+# espera ainda nao tem vaga, e o @techlead nao fica parado enquanto despacha (o
+# `destacar` devolve o turno dele na hora).
+MUDO_MIN = int(os.getenv("HERMES_DELEGAR_MUDO_MIN", "8"))
+# Minutos de silencio TOTAL (zero byte em stdout e stderr) que ja contam como rodada
+# morta. Em 01/10 sete devs subiram em 2m41s no mesmo repo e tres nunca escreveram um
+# byte: o err.log tinha uma linha so, "Session <id> found but has no messages. Starting
+# fresh.", e depois nada. Cada um ficou os 45 minutos do timeout e foi morto sem ter
+# feito nada — 135 minutos de espera para zero trabalho, e o estado da tarefa ficou em
+# IMPLEMENTING sem ninguem nela.
+#
+# Rodada viva escreve: o kiro imprime a sessao nos primeiros segundos e o bot narra
+# enquanto trabalha. Silencio absoluto por 8 minutos nao e bot pensando, e bot que nao
+# subiu. Falhar rapido devolve a vaga para o proximo e avisa o humano enquanto ele ainda
+# esta olhando.
+
 ESPERA_LOTE = 1200   # 20 min: depois disso manda o que tem, mesmo com irmao pendurado
 
 
@@ -391,7 +418,9 @@ def aviso_final(reg, m):
     cab = f"[{root.name}] {key}"
 
     if reg["status"] != "ok":
-        motivo = "passou do tempo" if reg["status"] == "timeout" else f"saiu com {reg['exit']}"
+        motivo = {"timeout": "passou do tempo",
+                  "mudo": f"nao escreveu nada em {MUDO_MIN} min — a sessao nao subiu"}.get(
+                      reg["status"], f"saiu com {reg['exit']}")
         # Falha quer o fim do log cru: o bot pode nem ter chegado a escrever resumo.
         return (f"❌ {cab} · @{bot} {motivo}.\n\n{cauda(reg['erros']) or bruto[-800:]}\n\n"
                 f"Log: {reg['erros']}"), None
@@ -544,6 +573,10 @@ def supervisionar(arq):
     reg = json.loads(arq.read_text(encoding="utf-8"))
     root, bot = Path(reg["projeto"]), reg["bot"]
     trava = Path(reg["trava"])
+    # A vaga e pedida ANTES de marcar a trava: quem espera nao ocupa lugar.
+    reg["esperou_min"] = esperar_vaga(root, trava)
+    if reg["esperou_min"]:
+        gravar(arq, reg)
     trava.write_text(str(os.getpid()), encoding="utf-8")
     cmd = [hermes_bin(), "-p", bot, "chat", "--in", str(root),
            "--continue", reg["sessao"], "--create-if-missing",
@@ -560,8 +593,12 @@ def supervisionar(arq):
                 open(reg["erros"], "w", encoding="utf-8") as err:
             proc = subprocess.Popen(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=out, stderr=err, **extra)
             try:
-                code = proc.wait(timeout=int(reg["timeout_min"]) * 60)
+                code = esperar(proc, reg)
                 reg["status"] = "ok" if code == 0 else "falhou"
+            except Mudo:
+                matar(proc)
+                code = None
+                reg["status"] = "mudo"
             except subprocess.TimeoutExpired:
                 matar(proc)
                 code = None
@@ -584,6 +621,74 @@ def supervisionar(arq):
     audit(root, tipo="delegar-fim", task=reg["key"], bot=bot, status=reg["status"],
           de=reg["estado_antes"], para=estado)
     return OK if reg["status"] == "ok" else ERRO
+
+
+class Mudo(Exception):
+    """Rodada que nao escreveu nada por MUDO_MIN minutos: nao subiu."""
+
+
+def rodando_no_projeto(root, menos=None):
+    """Rodadas de bot vivas neste projeto, pelos `.lock` com pid de processo vivo."""
+    base = root / ".hermes" / "runs"
+    n = 0
+    for l in (base.glob("*/*.lock") if base.is_dir() else []):
+        if menos and l == menos:
+            continue
+        try:
+            pid = l.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        if vivo(pid):
+            n += 1
+    return n
+
+
+def esperar_vaga(root, trava, limite_min=40):
+    """Segura a rodada ate o projeto ter menos de VAGAS bots rodando.
+
+    Devolve quantos minutos esperou. Passado `limite_min`, desiste de esperar e deixa
+    passar: ficar preso para sempre e pior que um bot a mais — e um lock esquecido de
+    processo que o `vivo()` nao conseguiu ler derrubaria o projeto inteiro.
+    """
+    if VAGAS <= 0:
+        return 0
+    comeco = time.time()
+    while rodando_no_projeto(root, menos=trava) >= VAGAS:
+        if time.time() - comeco >= limite_min * 60:
+            return int((time.time() - comeco) / 60)
+        time.sleep(15)
+    return int((time.time() - comeco) / 60)
+
+
+def esperar(proc, reg):
+    """`proc.wait` com teto de silencio, nao so de tempo total.
+
+    Espera em fatias e olha o tamanho dos dois arquivos de saida. Cresceu em alguma
+    fatia -> o bot esta vivo, zera o relogio do silencio. Nao cresceu por MUDO_MIN ->
+    `Mudo`. O timeout total continua valendo para a rodada que escreve e nao termina.
+    """
+    limite = time.time() + int(reg["timeout_min"]) * 60
+    fatia = 20
+    marca = time.time()
+    tamanho = -1
+    while True:
+        agora_s = time.time()
+        if agora_s >= limite:
+            raise subprocess.TimeoutExpired(reg.get("cmd"), int(reg["timeout_min"]) * 60)
+        try:
+            return proc.wait(timeout=min(fatia, max(1, limite - agora_s)))
+        except subprocess.TimeoutExpired:
+            pass
+        atual = 0
+        for k in ("saida", "erros"):
+            try:
+                atual += os.path.getsize(reg[k])
+            except OSError:
+                pass
+        if atual != tamanho:
+            tamanho, marca = atual, time.time()
+        elif time.time() - marca >= MUDO_MIN * 60:
+            raise Mudo()
 
 
 def matar(proc):

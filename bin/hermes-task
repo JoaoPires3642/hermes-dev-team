@@ -107,6 +107,41 @@ DOD = {
 
 H = {"humano"}
 FINAIS = {"MERGED", "DEPLOYED", "HOMOLOGATING"}
+def conferir_branch(key, br):
+    """`compartilhada` quer dizer UMA branch do time. Devolve o erro, ou None.
+
+    Em 01/10 o @techlead escreveu `estrategia: compartilhada` nos seis manifests da
+    skymark e, no mesmo campo `nome`, pos feature/ouvi-148-... (148), develop (149),
+    fix/ouvi-150-... (150), null (152), develop (153) e feature/ouvi-154-... (154).
+    Nao era so incoerente com a estrategia — era incoerente entre si.
+
+    O estrago nao foi teorico: ha UM working tree por repo, e os devs com branch propria
+    trocaram o checkout por baixo um do outro. 13:12:24 develop -> feature/ouvi-148,
+    13:18:36 ouvi-148 -> feature/ouvi-154. `git checkout` CARREGA alteracao nao
+    commitada quando nao ha conflito, entao o codigo da 148 reapareceu na branch da 154
+    e a arvore ficou com arquivos de tres tarefas.
+
+    A regra morava na skill e dependia de o bot lembrar — e regra que depende de lembrar
+    nao e regra.
+    """
+    est = (br or {}).get("estrategia")
+    nome = ((br or {}).get("nome") or "").strip()
+    if not est:
+        return "branch.estrategia nao definida (compartilhada ou por-tarefa, do AGENTS.md)"
+    if not nome:
+        return ("branch.nome vazio: sem ele o dev nao tem onde trabalhar "
+                "(`git-bot preparar` recusa)")
+    if est == "compartilhada" and key.lower().replace("-", "") in \
+            nome.lower().replace("-", "").replace("/", ""):
+        return ("branch.estrategia e 'compartilhada' (uma branch do time) mas "
+                "branch.nome '%s' e desta tarefa. Ha UM working tree por repo: duas "
+                "tarefas com branch propria trocam o checkout uma da outra e misturam o "
+                "codigo. Use a branch do time do AGENTS.md, ou mude a estrategia para "
+                "'por-tarefa' — e ai cada dev precisa de working tree separado."
+                % nome)
+    return None
+
+
 CAMINHOS_GATE2 = """o GATE 2 agora e condicional, e falta dizer qual e o caso:
   sobrou algo que SO O HUMANO decide ->
     move AWAITING_SPEC_APPROVAL --ev decisoes="<as perguntas, uma frase cada>"
@@ -312,6 +347,20 @@ def checa_ev(root, exig, ev):
     return faltas
 
 
+def worktree_da_tarefa(repo, key):
+    """Caminho do worktree que o `git-bot preparar --key` criou para esta tarefa, ou None.
+    Com worktree por tarefa o trabalho do dev NÃO está na árvore principal; olhar só lá faria o
+    DoD ver zero arquivos, e a árvore principal ainda carrega a sujeira das outras tarefas."""
+    saida = subprocess.run(["git", "-C", str(repo), "worktree", "list", "--porcelain"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA).stdout
+    for bloco in saida.split("\n\n"):
+        linhas = dict(l.split(" ", 1) for l in bloco.splitlines() if " " in l)
+        p = linhas.get("worktree")
+        if p and Path(p).name == key and Path(p).resolve() != Path(repo).resolve() and Path(p).is_dir():
+            return Path(p)
+    return None
+
+
 def arquivos_da_tarefa(root, m):
     """Mudança LÍQUIDA da tarefa: arquivos tocados por commits que citam a KEY e que ainda
     diferem de antes do 1º desses commits, + mudanças não commitadas."""
@@ -332,6 +381,7 @@ def arquivos_da_tarefa(root, m):
         repo = root / caminho
         if not (repo / ".git").exists():
             continue
+        repo = worktree_da_tarefa(repo, m["task_id"]) or repo
         g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA).stdout
         # `Refs: <KEY>` e não a KEY solta: o corpo de um commit costuma citar outra
         # task ("usa o recálculo de SELL-78"), e o grep frouxo atribuía os arquivos
@@ -347,20 +397,6 @@ def arquivos_da_tarefa(root, m):
             liquido = set()
         st = g("status", "--porcelain")
         liquido |= {l[3:].split(" -> ")[-1] for l in st.splitlines() if len(l) > 3}
-def worktree_da_tarefa(repo, key):
-    """Caminho do worktree que o `git-bot preparar --key` criou para esta tarefa, ou None.
-    Com worktree por tarefa o trabalho do dev NÃO está na árvore principal; olhar só lá faria o
-    DoD ver zero arquivos, e a árvore principal ainda carrega a sujeira das outras tarefas."""
-    saida = subprocess.run(["git", "-C", str(repo), "worktree", "list", "--porcelain"], capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", creationflags=SEM_JANELA).stdout
-    for bloco in saida.split("\n\n"):
-        linhas = dict(l.split(" ", 1) for l in bloco.splitlines() if " " in l)
-        p = linhas.get("worktree")
-        if p and Path(p).name == key and Path(p).resolve() != Path(repo).resolve() and Path(p).is_dir():
-            return Path(p)
-    return None
-
-
         out |= {str(PurePosixPath(caminho) / f) for f in liquido}
     return sorted(out)
 
@@ -381,7 +417,6 @@ def fora_do_escopo(root, m, agente=None):
         return None  # sem escopo definido
     ruins = []
     for f in arquivos_da_tarefa(root, m):
-        repo = worktree_da_tarefa(repo, m["task_id"]) or repo
         alvo = PurePosixPath(f)
         # caminho literal (o que o @techlead grava) casa por igualdade; glob por
         # full_match. Antes só o glob era testado, então caminho exato = "fora".
@@ -522,6 +557,9 @@ def cmd_move(a):
                 negar("só a tarefa de uma call (CALL-N) fecha assim; issue fecha no GATE 3")
             exig = dict(exig)
             if de == "SPECIFYING" and para in ("AWAITING_SPEC_APPROVAL", "SPEC_APPROVED"):
+                erro_br = conferir_branch(a.key, m.get("branch"))
+                if erro_br:
+                    negar(erro_br)
                 if DEVS <= set(m["agentes"]):
                     exig["contrato"] = "arquivo"  # front e back em paralelo: contrato antes
                 sem_escopo = [d for d in m["agentes"] if d in DEVS and not (m.get("allowed_paths") or {}).get(d)]

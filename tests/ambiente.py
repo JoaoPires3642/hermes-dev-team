@@ -125,6 +125,13 @@ class Ambiente:
             # sem espera entre tentativas de aviso: a suite nao testa a rede,
             # e o backoff de 3s/6s dominava o tempo total da rodada
             "HERMES_ESPERA_AVISO": "0",
+            # Sem limite de vagas aqui. O limite modela a capacidade de um backend
+            # externo (as sessoes do kiro, que em 01/10 nao atenderam sete devs de
+            # uma vez) e a suite roda bots falsos, que nao tem backend nenhum: ligar
+            # a fila so faria a 4a rodada esperar a 1a e estourar o prazo de 30s do
+            # `esperar_rodadas`. O limite em si e testado sem depender de tempo em
+            # tests/test_travado.py, classe Vagas.
+            "HERMES_DELEGAR_VAGAS": "0",
         }
         # O env é montado do zero para isolar, mas no Windows um punhado de variáveis
         # não é "ambiente do usuário", é infraestrutura do próprio Python:
