@@ -23,12 +23,19 @@ FINGIR_HUMANO = ["hermes-task * --by humano*", "hermes-task *--by=humano*"]
 # plugin hermes-gates no Telegram); o @orquestrador só nasce pelo call-dispatch; e
 # `hermes -p`/`hermes chat` cru pularia as checagens do hermes-delegar (pasta, estado,
 # handoff). Vale para o Kiro (padrão no início do comando) e, abaixo, para o Hermes.
-PULAR_GATE = ["call-dispatch*", "hermes-delegar orquestrador*", "hermes -p*", "hermes chat*"]
+# Os subcomandos que AGEM. `doctor` e `pendentes` ficam de fora: sao leitura, e barrar
+# leitura so faz o bot reportar "nao consegui medir" — foi o que o @manutencao reportou
+# na primeira rodada dele, e a culpa era desta lista, nao dele.
+ACOES_DISPATCH = ["call-dispatch varrer*", "call-dispatch cliente*", "call-dispatch novo*",
+                  "call-dispatch aprovar*", "call-dispatch ajustar*",
+                  "call-dispatch rejeitar*", "call-dispatch ignorar*"]
+PULAR_GATE = ACOES_DISPATCH + ["hermes-delegar orquestrador*", "hermes -p*", "hermes chat*"]
 # approvals.deny do Hermes: fnmatch no comando INTEIRO, por isso o * dos dois lados.
 # Bloqueia até sob --yolo. É o que segura @orquestrador/@po/@pm, que saíram do Kiro e
 # não passam mais pela política dele.
-HERMES_DENY = ["*--by humano*", "*--by=humano*", "*--by @humano*", "*call-dispatch*",
-               "*hermes-delegar orquestrador*", "*hermes -p *", "*hermes chat*"]
+HERMES_DENY = (["*--by humano*", "*--by=humano*", "*--by @humano*"]
+               + ["*%s" % x for x in ACOES_DISPATCH]
+               + ["*hermes-delegar orquestrador*", "*hermes -p *", "*hermes chat*"])
 
 # O @arquiteto e somente leitura, e isso precisa ser TRAVA e nao recomendacao: ele le
 # repositorio inteiro (conteudo nao confiavel) e um texto plantado num README pedindo
@@ -74,8 +81,13 @@ PLATAFORMA = [
     "*nano*skill-review*", "*vim*skill-review*", "*cp *bin/skill-review*",
     "*nano*manutencao*", "*vim*manutencao*", "*code *souls/manutencao*",
     "*mv *skill-review*", "*rm *skill-review*", "*> *souls/manutencao*",
-    # trabalho de cliente nao e dele
-    "*call-dispatch*", "*hermes-task*move*", "*hermes-delegar*", "*tuple-api * post *",
+    # Trabalho de cliente nao e dele. `call-dispatch doctor` e a excecao e fica FORA
+    # da lista: e leitura, confere a instalacao inteira, e esta no prompt da rodada
+    # dele. Na primeira rodada o deny barrou o doctor e ele reportou "ficou sem
+    # medicao, nao verde" — honesto, e culpa da lista, nao dele. Os subcomandos que
+    # agem (varrer, cliente, aprovar, novo, ajustar, rejeitar, ignorar) seguem fora
+    # do alcance.
+    "*hermes-task*move*", "*hermes-delegar*", "*tuple-api * post *",
     "*--by humano*", "*--by=humano*",
     # producao
     "*kubectl *", "*helm *", "*terraform apply*", "*terraform destroy*",

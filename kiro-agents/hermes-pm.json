@@ -30,7 +30,13 @@
       {
         "capability": "shell",
         "match": [
-          "call-dispatch*",
+          "call-dispatch varrer*",
+          "call-dispatch cliente*",
+          "call-dispatch novo*",
+          "call-dispatch aprovar*",
+          "call-dispatch ajustar*",
+          "call-dispatch rejeitar*",
+          "call-dispatch ignorar*",
           "hermes-delegar orquestrador*",
           "hermes -p*",
           "hermes chat*"
