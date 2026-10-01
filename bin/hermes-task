@@ -142,6 +142,120 @@ def conferir_branch(key, br):
     return None
 
 
+ENTREGUES = {"AWAITING_REVIEW", "MERGED", "DEPLOYED", "HOMOLOGATING", "CLOSED"}
+ATIVAS = {"IMPLEMENTING", "TESTING", "CHANGES_REQUESTED", "AWAITING_COMMIT"}
+
+
+def lista_de(v):
+    """depende_de / allowed_paths chegam como lista OU string com vírgulas (escritos à mão)."""
+    if isinstance(v, str):
+        return [x.strip() for x in v.split(",") if x.strip()]
+    return [str(x).strip() for x in (v or []) if str(x).strip()]
+
+
+def prefixo_de(glob):
+    """Parte literal de um allowed_path: o que vem antes do primeiro curinga, até a última barra.
+    `web/src/cases/**` → `web/src/cases/`; `web/src/lib/closure-block.ts` → ele mesmo."""
+    g = glob.strip().replace("\\", "/")
+    i = next((n for n, c in enumerate(g) if c in "*?[{"), None)
+    if i is None:
+        return g
+    return g[:g.rfind("/", 0, i) + 1]
+
+
+def caminhos_se_tocam(a, b):
+    """Dois allowed_paths podem tocar o mesmo arquivo? Conservador: na dúvida diz que sim, e o
+    custo é serializar duas tarefas, não misturar o código delas."""
+    pa, pb = prefixo_de(a), prefixo_de(b)
+    if pa == pb:
+        return True
+    return (pa.endswith("/") and pb.startswith(pa)) or (pb.endswith("/") and pa.startswith(pb))
+
+
+def manifest_de(root, key):
+    mf = root / ".hermes" / "tasks" / key / "manifest.yaml"
+    try:
+        return yaml.safe_load(mf.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+
+
+def bloqueio_de_sequencia(root, key, m):
+    """Motivo se esta tarefa NÃO pode começar a implementar agora; None se pode.
+
+    Em 01/10 a OUVI-149 criava o `lossKind` e a OUVI-148 condicionava a devolução a ele, as duas
+    no mesmo formulário: sequenciais, não paralelas. O fluxo as rodou juntas porque nada dizia
+    que uma esperava a outra. Duas regras, as duas em código:
+    - `depende_de`: a tarefa só começa depois que cada dependência foi ENTREGUE (commitada e em
+      revisão, ou além) — é o que dá ao dev o código de que ele precisa;
+    - allowed_paths: não começa se outra tarefa ATIVA pode tocar os mesmos arquivos. Worktree
+      separado evita misturar a árvore, mas não o conflito de merge nem a dependência de
+      significado, e bot não resolve conflito de código alheio."""
+    for dep in lista_de(m.get("depende_de")):
+        d = manifest_de(root, dep)
+        if d is None:
+            return f"depende_de {dep}, que não existe neste projeto (confira a KEY)"
+        if d.get("estado") not in ENTREGUES:
+            return (f"depende de {dep}, que está em {d.get('estado')}: só começa quando {dep} chegar a "
+                    "AWAITING_REVIEW (ou além). Deixe esta tarefa em SPEC_APPROVED")
+    meus = [g for v in (m.get("allowed_paths") or {}).values() for g in lista_de(v)]
+    for mf in sorted((root / ".hermes" / "tasks").glob("*/manifest.yaml")):
+        outra = mf.parent.name
+        if outra == key:
+            continue
+        o = manifest_de(root, outra) or {}
+        if o.get("estado") not in ATIVAS:
+            continue
+        deles = [g for v in (o.get("allowed_paths") or {}).values() for g in lista_de(v)]
+        comuns = [(x, y) for x in meus for y in deles if caminhos_se_tocam(x, y)]
+        if comuns:
+            x, y = comuns[0]
+            return (f"{outra} está em {o.get('estado')} e pode tocar os mesmos arquivos ({x} × {y}). "
+                    f"São sequenciais, não paralelas: declare `set depende_de={outra}` nesta tarefa "
+                    f"(e a relação BLOCKS no TUPLE) e espere {outra} chegar a AWAITING_REVIEW. "
+                    "Deixe esta tarefa em SPEC_APPROVED")
+    return None
+
+
+def dependencia_circular(root, key, deps):
+    """Primeiro ciclo que `key → deps` fecharia, como 'A → B → A'; None se não há."""
+    for dep in deps:
+        visto, fila = [key, dep], [dep]
+        while fila:
+            atual = fila.pop()
+            for prox in lista_de((manifest_de(root, atual) or {}).get("depende_de")):
+                if prox == key:
+                    return " → ".join(visto + [atual, key])
+                if prox not in visto:
+                    visto.append(prox)
+                    fila.append(prox)
+    return None
+
+
+CAMINHOS_GATE2 = """o GATE 2 agora e condicional, e falta dizer qual e o caso:
+  sobrou algo que SO O HUMANO decide ->
+    move AWAITING_SPEC_APPROVAL --ev decisoes="<as perguntas, uma frase cada>"
+  nao sobrou -> vai direto ao dev, sem gate:
+    move SPEC_APPROVED --ev sem_decisoes="<por que nao ha o que decidir>"
+
+Contam como decisao dele: regra de negocio com mais de uma leitura defensavel,
+quem pode ver ou fazer algo, mudar comportamento que ja esta no ar, e a tarefa
+nao devendo existir. Nao contam: escolha tecnica dentro do que a story ja fixou,
+nome de arquivo ou branch, ordem das tasks, o que o DoR ja responde."""
+
+
+def outras_faltas(faltas):
+    resto = [f for f in faltas if f not in ("decisoes", "sem_decisoes")]
+    return "\nFaltou tambem: " + ", ".join(resto) if resto else ""
+
+
+# Estados em que a tarefa ainda USA a branch dela. Fora destes (CLOSED, MERGED...) o nome ja nao
+# disputa nada: uma tarefa encerrada nao deve obrigar as novas a concordarem com ela.
+VIVOS = {"SPECIFYING", "AWAITING_SPEC_APPROVAL", "SPEC_APPROVED", "IMPLEMENTING", "TESTING",
+         "CHANGES_REQUESTED", "AWAITING_COMMIT", "AWAITING_REVIEW", "BLOCKED"}
+BASES = {"main", "master", "develop", "development", "dev"}
+
+
 CAMINHOS_GATE2 = """o GATE 2 agora e condicional, e falta dizer qual e o caso:
   sobrou algo que SO O HUMANO decide ->
     move AWAITING_SPEC_APPROVAL --ev decisoes="<as perguntas, uma frase cada>"
@@ -477,7 +591,7 @@ def cmd_show(a):
 TRAVADOS_APOS_SPEC = {"agentes", "allowed_paths", "escopo", "criterios_aceite", "tem_ui"}
 ABERTOS = {"RECEIVED", "TRIAGED", "AWAITING_APPROVAL", "SPECIFYING"}
 CAMPOS_SET = {"objetivo", "tem_ui", "risco", "agentes", "repos", "criterios_aceite", "restricoes_tecnicas",
-              "escopo", "branch", "allowed_paths", "artefatos"}
+              "escopo", "branch", "allowed_paths", "artefatos", "depende_de"}
 
 
 def cmd_set(a):
@@ -497,6 +611,16 @@ def cmd_set(a):
                 val = yaml.safe_load(v)
             except yaml.YAMLError:
                 val = v
+            if k == "depende_de":
+                deps = lista_de(val)
+                ciclo = dependencia_circular(root, a.key, deps)
+                faltando = [d for d in deps if manifest_de(root, d) is None]
+                if a.key in deps or ciclo or faltando:
+                    motivo = (f"{a.key} não pode depender de si mesma" if a.key in deps else
+                              f"dependência circular ({ciclo}): as duas esperariam uma pela outra para sempre"
+                              if ciclo else f"depende_de aponta para tarefa que não existe aqui: {', '.join(faltando)}")
+                    audit(root, tipo="negado", task=a.key, por=a.by, motivo=f"set depende_de: {motivo}")
+                    die(f"NEGADO: {motivo}")
             alvo, partes = m, k.split(".")
             for p in partes[:-1]:
                 alvo = alvo.setdefault(p, {})
@@ -570,6 +694,10 @@ def cmd_move(a):
                 motivo = conflito_de_branch(root, a.key, b.get("estrategia"), ev["branch"], b.get("base"))
                 if motivo:
                     negar(f"branch={ev['branch']}: {motivo}")
+            if (de, para) == ("SPEC_APPROVED", "IMPLEMENTING"):
+                espera = bloqueio_de_sequencia(root, a.key, m)
+                if espera:
+                    negar(espera)
             if (de, para) == ("TESTING", "AWAITING_COMMIT") and m.get("tem_ui"):
                 exig["evidencia_visual"] = "arquivo"
             faltas = checa_ev(root, exig, ev)
