@@ -169,6 +169,20 @@ class RodadaParada(unittest.TestCase):
         self.assertIn("parou de progredir", texto)
         self.assertNotIn("passou do tempo", texto)
 
+    def test_grava_a_sessao_no_disco_ao_achar_nao_so_no_fim(self):
+        # Sem isto o campo aparece no .json apenas quando a rodada termina, e quem olha
+        # uma rodada VIVA le "ainda nao achou" sem saber se o mecanismo falhou ou se e
+        # falta de persistencia. Eu cai nisso dez minutos depois de escrever o codigo.
+        self.hd.SEM_PROGRESSO_MIN = 1.0 / 60
+        self.sessao("gravada", '{"kind":"Prompt","data":"20261001-144745-dev-front"}')
+        arq = Path(tempfile.mkdtemp()) / "run.json"
+        arq.write_text("{}", encoding="utf-8")
+        with self.assertRaises(self.hd.SemProgresso):
+            self.hd.esperar(self.Falso(), self.reg, arq)
+        import json
+        gravado = json.loads(arq.read_text(encoding="utf-8"))
+        self.assertIn("gravada.jsonl", gravado.get("sessao_kiro", ""))
+
     def test_o_aviso_diz_quanto_trabalho_havia(self):
         # Rodada morta sem isto e indistinguivel de rodada que nunca comecou, porque o
         # `out.md` so nasce no fim. Foi o que me fez diagnosticar "a sessao nao subiu".
@@ -197,6 +211,51 @@ class RodadaParada(unittest.TestCase):
     def test_timeout_total_nao_e_mais_45(self):
         # 45 cortou tres rodadas em trabalho; as que couberam levaram 28, 29 e 44 min.
         self.assertGreater(carregar("hermes-delegar").TIMEOUT_PADRAO, 45)
+
+
+class DevCalado(unittest.TestCase):
+    """Dev que termina sem mover e sem entregar nao pode sair calado.
+
+    Dev ficou fora do `DEVE_MOVER` por um motivo bom: `IMPLEMENTING -> TESTING` so
+    acontece quando TODOS os devs da tarefa entregaram, entao quem entrega primeiro para
+    em IMPLEMENTING legitimamente. Mas a ausencia do aviso cobria tambem o caso oposto:
+    em 01/10 o @dev-back da OUVI-150 trabalhou 8 minutos, escreveu "18 montador tests
+    green, build green" no resumo, e terminou com `handoffs_dev: []` e a tarefa em
+    IMPLEMENTING. Nenhum aviso saiu.
+
+    `handoffs_dev` distingue: tem o meu nome -> entreguei e espero; nao tem -> nao disse
+    nada a ninguem.
+    """
+
+    def setUp(self):
+        self.hd = carregar("hermes-delegar")
+        self.raiz = Path(tempfile.mkdtemp())
+        (self.raiz / ".hermes").mkdir()
+        (self.raiz / "o.md").write_text("Resumo:\nfiz o trabalho\n", encoding="utf-8")
+        (self.raiz / "e.log").write_text("", encoding="utf-8")
+
+    def aviso(self, bot, antes, depois, handoffs):
+        reg = {"projeto": str(self.raiz), "key": "X-1", "status": "ok", "exit": 0,
+               "saida": str(self.raiz / "o.md"), "erros": str(self.raiz / "e.log"),
+               "bot": bot, "estado_antes": antes, "estado_depois": depois}
+        texto, _ = self.hd.aviso_final(reg, {"handoffs_dev": handoffs,
+                                             "estado": depois})
+        return "terminou sem mover" in (texto or "")
+
+    def test_dev_que_nao_entregou_nem_moveu_avisa(self):
+        self.assertTrue(self.aviso("dev-back", "IMPLEMENTING", "IMPLEMENTING", []))
+
+    def test_dev_que_entregou_e_espera_o_colega_fica_calado(self):
+        # Caso legitimo: `IMPLEMENTING -> TESTING` exige os dois devs.
+        self.assertFalse(self.aviso("dev-back", "IMPLEMENTING", "IMPLEMENTING",
+                                    ["dev-back"]))
+
+    def test_dev_que_moveu_nao_recebe_aviso_de_imobilidade(self):
+        self.assertFalse(self.aviso("dev-back", "IMPLEMENTING", "TESTING", []))
+
+    def test_quem_ja_era_cobrado_continua_cobrado(self):
+        self.assertTrue(self.aviso("qa", "TESTING", "TESTING", []))
+        self.assertTrue(self.aviso("techlead", "SPECIFYING", "SPECIFYING", []))
 
 
 class Branch(unittest.TestCase):

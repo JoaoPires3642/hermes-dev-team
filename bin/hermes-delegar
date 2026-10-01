@@ -79,6 +79,7 @@ PODE = {
 
 # Quem, ao terminar, tem obrigação de mover o estado. Terminar sem mover é aviso.
 DEVE_MOVER = {"orquestrador", "techlead", "qa"}
+DEVS = {"dev-front", "dev-back"}
 
 
 def agora():
@@ -502,7 +503,23 @@ def aviso_final(reg, m):
                 f"Discorda? `/ajustar {key} <o que mudar>` traz a story de volta; "
                 f"`/atendido {key} <motivo>` encerra se o trabalho nao deveria existir."), \
             artefato(root, m, "story")
-    if (bot in DEVE_MOVER or (bot == "po" and antes == "TRIAGED")) and antes == depois:
+    # Dev que termina sem mover: avisa SO se ele tambem nao registrou o handoff dele.
+    #
+    # Dev ficou fora do DEVE_MOVER por um motivo bom: `IMPLEMENTING -> TESTING` so
+    # acontece quando TODOS os devs da tarefa entregaram, entao quem entrega primeiro
+    # para em IMPLEMENTING de forma legitima, esperando o colega. Mas a ausencia do
+    # aviso cobria tambem o caso oposto. Em 01/10 o @dev-back da OUVI-150 trabalhou 8
+    # minutos, escreveu "18 montador tests green, build green" no resumo, e terminou com
+    # `handoffs_dev: []` e a tarefa em IMPLEMENTING. Nenhum aviso saiu, e ela ia ficar
+    # ali parada — exatamente o buraco que o `pendentes` passou a mostrar hoje, so que
+    # uma hora mais tarde.
+    #
+    # `handoffs_dev` distingue os dois casos: tem o meu nome -> entreguei, espero o
+    # colega; nao tem -> nao entreguei e nao disse nada.
+    dev_calado = (bot in DEVS and antes == depois
+                  and bot not in (m.get("handoffs_dev") or []))
+    if (bot in DEVE_MOVER or (bot == "po" and antes == "TRIAGED") or dev_calado) \
+            and antes == depois:
         return (f"⚠️ {cab} · @{bot} terminou sem mover a tarefa (segue em {depois}).\n\n"
                 f"{resposta[-1500:]}\n\nSaída: {reg['saida']}"), None
     return None, None
@@ -626,7 +643,7 @@ def supervisionar(arq):
                 open(reg["erros"], "w", encoding="utf-8") as err:
             proc = subprocess.Popen(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=out, stderr=err, **extra)
             try:
-                code = esperar(proc, reg)
+                code = esperar(proc, reg, arq)
                 reg["status"] = "ok" if code == 0 else "falhou"
             except SemProgresso:
                 matar(proc)
@@ -719,7 +736,7 @@ def achar_sessao_kiro(rodada, desde):
     return None
 
 
-def esperar(proc, reg):
+def esperar(proc, reg, arq=None):
     """`proc.wait` com teto de tempo total e teto de rodada PARADA.
 
     Parada e medida no jsonl da sessao do kiro, que cresce a cada turno. `out.md` nao
@@ -743,6 +760,15 @@ def esperar(proc, reg):
             if sessao is not None:
                 reg["sessao_kiro"] = str(sessao)
                 marca = time.time()        # o relogio de parada comeca ao achar
+                # Grava agora, nao so no fim: sem isto o campo aparece no .json apenas
+                # quando a rodada termina, e quem olhar uma rodada VIVA le "ainda nao
+                # achou" sem saber se e o mecanismo que falhou ou se e so falta de
+                # persistencia. Eu cai nisso dez minutos depois de escrever o codigo.
+                if arq is not None:
+                    try:
+                        gravar(arq, reg)
+                    except OSError:
+                        pass
         if sessao is None:
             continue                       # sem sinal fiel: so o timeout total decide
         try:
