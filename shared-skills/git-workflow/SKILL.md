@@ -1,7 +1,7 @@
 ---
 name: git-workflow
 description: Aplique antes de qualquer operação git nos repos dos clientes. Use o git-bot; ele já carrega as regras. Aqui fica só o que exige julgamento.
-version: 2.0.0
+version: 2.1.0
 author: Joao Pires
 metadata:
   hermes:
@@ -23,6 +23,22 @@ git-bot push     <repo>
 ```
 
 Saída: `0` ok · `1` erro · `2` falta informação · `3` **BLOCKED** (só humano destrava).
+
+## Trabalhe no worktree da sua tarefa, nunca na árvore do repo
+
+Passe sempre `--key` ao `preparar`. Ele cria **um working tree só da sua tarefa** e imprime
+`worktree: <caminho>`. Dali em diante esse caminho é o seu `<repo>`: edite os arquivos dentro
+dele e passe-o a `commit` e `push`. A árvore principal do repo é de humano: outros devs
+rodam em paralelo no mesmo repo, e escrever nela troca a branch de alguém (OUVI-148 perdeu a
+sua em 6 minutos) e o `git add -A` leva arquivo de outra tarefa.
+
+- Árvore suja que você **não** criou não é "WIP do humano": pode ser de outro bot. Não mexa,
+  não stashe, não apague; é `BLOCKED` com os nomes dos arquivos.
+- `commit` recusa `--key` diferente da do worktree em que você está.
+- Sem `node_modules` no worktree? Instale lá (`pnpm install --offline --frozen-lockfile`);
+  não aponte para o de outra árvore.
+- Voltou depois de uma queda? Rode o mesmo `preparar --key` de novo: devolve o mesmo caminho,
+  com o seu trabalho dentro.
 
 O `git-bot` já garante, sem você pedir: identidade local (nunca `--global`),
 Conventional Commits validado com `Refs: <KEY>` no corpo, `fetch` + `pull --rebase`
