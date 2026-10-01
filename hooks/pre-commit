@@ -1,0 +1,19 @@
+#!/bin/sh
+# Copiado para .git/hooks/pre-commit pelo install-windows.sh.
+#
+# Trava de SOUL ou shared-skill nao sai por decisao de bot. O `skill-review analisar`
+# compara profile contra repo e so ve skill de bot; SOUL e shared-skill sao editados
+# direto aqui, e e neles que mora a autoridade do time. Como o @manutencao commita na
+# main sozinho, relatar depois nao segura nada: tem que barrar antes de entrar.
+#
+# `--no-verify` esta na deny de todos os bots, entao para eles este hook e obrigatorio.
+# Humano que precisa mesmo tirar uma trava: SKILL_REVIEW_FORCAR=1 git commit ...
+if [ -n "$SKILL_REVIEW_FORCAR" ]; then
+    echo "pre-commit: guardiao dispensado por SKILL_REVIEW_FORCAR" >&2
+    exit 0
+fi
+raiz=$(git rev-parse --show-toplevel) || exit 1
+[ -f "$raiz/bin/skill-review" ] || exit 0
+# Falha fechada de proposito: sem python o guardiao nao roda, e commit que ninguem
+# conferiu e pior do que commit que nao aconteceu.
+exec python "$raiz/bin/skill-review" guardiao

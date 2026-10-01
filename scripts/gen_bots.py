@@ -35,7 +35,13 @@ PULAR_GATE = ACOES_DISPATCH + ["hermes-delegar orquestrador*", "hermes -p*", "he
 # não passam mais pela política dele.
 HERMES_DENY = (["*--by humano*", "*--by=humano*", "*--by @humano*"]
                + ["*%s" % x for x in ACOES_DISPATCH]
-               + ["*hermes-delegar orquestrador*", "*hermes -p *", "*hermes chat*"])
+               # `hermes -p <bot> chat` cru pula as checagens do hermes-delegar (pasta,
+               # estado, handoff) e `send` fala no lugar de outro bot. O RESTO de
+               # `hermes -p` e leitura — `cron list`, `sessions list`, `profile list` —
+               # e e com isso que se audita a plataforma. Barrar tudo so fez o
+               # @manutencao reportar "nao consegui medir", igual ao doctor.
+               + ["*hermes-delegar orquestrador*", "*hermes -p * chat*",
+                  "*hermes -p * send*", "*hermes chat*"])
 
 # O @arquiteto e somente leitura, e isso precisa ser TRAVA e nao recomendacao: ele le
 # repositorio inteiro (conteudo nao confiavel) e um texto plantado num README pedindo

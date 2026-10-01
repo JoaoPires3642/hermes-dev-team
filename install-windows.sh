@@ -83,8 +83,12 @@ say "Checando dependências"
 [[ -f "$HERMES"   ]] || die "hermes.cmd não encontrado em $HERMES"
 [[ -x "$KIRO_EXE" ]] || die "kiro-cli.exe não encontrado em $KIRO_EXE"
 # ja garantido em $PYLIBS acima; aqui so confirma que o caminho resolve
-PYTHONPATH="$PYSITE_WIN" python -c "import yaml" 2>/dev/null \n  || die "PyYAML nao resolve nem em $PYLIBS"
+PYTHONPATH="$PYSITE_WIN" python -c "import yaml" 2>/dev/null \
+  || die "PyYAML nao resolve nem em $PYLIBS"
 [[ -f "$CBM_WIN" ]] || warn "codebase-memory-mcp não encontrado — @techlead/@dev-*/@qa perdem o grafo do código"
+
+say "Hook de pre-commit (guardiao das travas de SOUL e shared-skill)"
+install -m 755 "$REPO/hooks/pre-commit" "$REPO/.git/hooks/pre-commit"
 
 say "Ferramentas em ~/.local/bin (wrappers: o shebang python3 não existe no Windows)"
 BIN_DIR="$HOME/.local/bin"

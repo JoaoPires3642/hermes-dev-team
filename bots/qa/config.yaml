@@ -44,7 +44,8 @@ approvals:
     - "*call-dispatch rejeitar*"
     - "*call-dispatch ignorar*"
     - "*hermes-delegar orquestrador*"
-    - "*hermes -p *"
+    - "*hermes -p * chat*"
+    - "*hermes -p * send*"
     - "*hermes chat*"
 
 telegram:

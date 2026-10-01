@@ -6,6 +6,7 @@
     skill-review aplicar [--sim]        # leva as SEGURAS para o repo e commita
     skill-review quarentena <bot> <skill> [--motivo ...]
     skill-review pendentes              # o que espera decisao humana
+    skill-review guardiao [--forcar]    # barra commit que apaga trava de SOUL/shared
 
 Por que existe
 --------------
@@ -62,10 +63,22 @@ PERMISSAO = re.compile(
 # Linha que EXISTE para impedir alguma coisa. Remover uma dessas e o padrao que
 # transformou a pm-board-cadence 1.1.0 em problema: nao se nega por mencionar trava,
 # nega-se por APAGAR trava.
+# Linha de lista YAML com um glob de comando dentro: `    - "*git*commit*"`.
+# Reconhece pela forma, nao pelo conteudo — o ponto e justamente nao depender de
+# entender o que o glob proibe.
+_ENTRADA_DENY = re.compile(r"^\s*-\s+.*\*")
+
 TRAVA = re.compile(
-    r"\bnunca\b|\bn[ãa]o\s+(?:move|mexa|fa[çc]a|tente|aprove|pode|deve|commite)|"
-    r"\bproibid|\brecuse?\b|\bbloqueado\b|\bexige\s+(?:OK|autoriza)|"
-    r"\bs[óo]\s+(?:humano|a\s+revis)|\bnever\b|\bdoes\s+NOT\b|\bdo\s+not\b", re.I)
+    # Radicais, nao formas exatas: a primeira versao tinha "aprove" e deixou passar
+    # "nao aprova o que nao rodou" — a mesma trava, outra conjugacao. Falso positivo
+    # aqui custa um `--forcar` do humano; falso negativo custa uma trava apagada.
+    r"\bnunca\b|\bjamais\b|"
+    r"\bn[ãa]o\s+(?:mov|mex|fa[çc]|tent|aprov|pod|dev|commit|toqu|entr|escrev|"
+    r"cri|registr|alter|execut|insist|adivinh|chut)\w*|"
+    r"\bproibid|\brecus\w*|\bbloquead\w*|\bvedad\w*|"
+    r"\bexige\s+(?:OK|autoriza|aprova)|\bs[óo]\s+(?:o\s+)?humano|"
+    r"\bs[óo]\s+a\s+revis|\bnever\b|\bdoes\s+NOT\b|\bdo\s+not\b|\bmust\s+not\b",
+    re.I)
 
 
 # Vocabulario de PLATAFORMA. Skill que fala disso e trabalho do dono da plataforma, nao
@@ -379,6 +392,64 @@ def cmd_conferir(_a):
     return OK
 
 
+def _diff_staged(caminhos) -> dict:
+    """{arquivo: (saiu, entrou)} do que esta em stage sob esses caminhos."""
+    nomes = git("diff", "--cached", "--name-only", "--", *caminhos).stdout.split()
+    fora = {}
+    for n in nomes:
+        d = git("diff", "--cached", "-U0", "--", n).stdout.splitlines()
+        saiu = [l[1:] for l in d if l.startswith("-") and not l.startswith("---")]
+        entrou = [l[1:] for l in d if l.startswith("+") and not l.startswith("+++")]
+        fora[n] = (saiu, entrou)
+    return fora
+
+
+def cmd_guardiao(a):
+    """Barra no COMMIT o que mexe em autoridade: SOUL e shared-skill.
+
+    O `analisar` compara profile contra repo e so ve skill de bot. SOUL e shared-skill
+    sao editados direto no repo — e e neles que mora a autoridade do time. O
+    @manutencao commita na main sozinho, entao relatar depois nao segura nada: tem que
+    barrar antes de entrar.
+
+    NEGA se o commit apaga uma linha que existia para impedir algo. AVISA (e deixa
+    passar) quando so acrescenta texto que fala de permissao: restringir-se e legitimo,
+    e barrar isso mataria justamente as boas mudancas.
+    """
+    alvos = ["souls/", "bots/", "shared-skills/"]
+    mudancas = _diff_staged(alvos)
+    if not mudancas:
+        return OK
+    negar, avisar = [], []
+    for arq, (saiu, entrou) in mudancas.items():
+        padrao = arq.replace("\\", "/").endswith("config.yaml")
+        for l in saiu:
+            # `config.yaml` guarda a autoridade em forma de maquina, nao de prosa: uma
+            # linha de deny que sai afrouxa permissao sem dizer "nao" em lugar nenhum,
+            # e a TRAVA, que le portugues, passaria batido. Entao em config.yaml a
+            # regra e posicional: entrada de deny que desaparece e trava removida.
+            # Acrescentar deny continua livre — so a saida e barrada.
+            if padrao and _ENTRADA_DENY.match(l):
+                negar.append((arq, l.strip()))
+            elif TRAVA.search(l):
+                negar.append((arq, l.strip()))
+        for l in entrou:
+            if PERMISSAO.search(l):
+                avisar.append((arq, l.strip()))
+    for arq, l in avisar[:6]:
+        print("  aviso  %s: fala de permissao — %s" % (arq, l[:90]), file=sys.stderr)
+    if not negar:
+        return OK
+    print("\nskill-review: COMMIT RECUSADO — apaga trava de autoridade:", file=sys.stderr)
+    for arq, l in negar[:10]:
+        print("  %s" % arq, file=sys.stderr)
+        print("    - %s" % l[:110], file=sys.stderr)
+    print("\nLinha que existe para impedir algo nao sai por decisao de bot. Se ela esta",
+          file=sys.stderr)
+    print("errada, quem tira e o humano. Para o humano forcar: --forcar.", file=sys.stderr)
+    return ERRO if not a.forcar else OK
+
+
 def cmd_pendentes(_a):
     fs = sorted(pasta_pendentes().glob("*.json"))
     if not fs:
@@ -405,6 +476,10 @@ def main(argv):
     p.add_argument("bot"); p.add_argument("skill"); p.add_argument("--motivo")
     p.set_defaults(f=cmd_quarentena)
     s.add_parser("conferir").set_defaults(f=cmd_conferir)
+    p = s.add_parser("guardiao")
+    p.add_argument("--forcar", action="store_true",
+                   help="deixa passar mesmo apagando trava (so humano)")
+    p.set_defaults(f=cmd_guardiao)
     s.add_parser("pendentes").set_defaults(f=cmd_pendentes)
     a = ap.parse_args(argv)
     try:
