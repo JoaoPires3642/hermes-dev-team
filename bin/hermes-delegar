@@ -314,18 +314,28 @@ VAGAS = int(os.getenv("HERMES_DELEGAR_VAGAS", "4"))
 # ninguem fica preso na frente. Nao ha risco de travar todos de uma vez porque quem
 # espera ainda nao tem vaga, e o @techlead nao fica parado enquanto despacha (o
 # `destacar` devolve o turno dele na hora).
-MUDO_MIN = int(os.getenv("HERMES_DELEGAR_MUDO_MIN", "8"))
-# Minutos de silencio TOTAL (zero byte em stdout e stderr) que ja contam como rodada
-# morta. Em 01/10 sete devs subiram em 2m41s no mesmo repo e tres nunca escreveram um
-# byte: o err.log tinha uma linha so, "Session <id> found but has no messages. Starting
-# fresh.", e depois nada. Cada um ficou os 45 minutos do timeout e foi morto sem ter
-# feito nada — 135 minutos de espera para zero trabalho, e o estado da tarefa ficou em
-# IMPLEMENTING sem ninguem nela.
+MUDO_MIN = int(os.getenv("HERMES_DELEGAR_MUDO_MIN", "0"))
+# DESLIGADO (0). Minutos de silencio em stdout/stderr que contariam como rodada morta.
 #
-# Rodada viva escreve: o kiro imprime a sessao nos primeiros segundos e o bot narra
-# enquanto trabalha. Silencio absoluto por 8 minutos nao e bot pensando, e bot que nao
-# subiu. Falhar rapido devolve a vaga para o proximo e avisa o humano enquanto ele ainda
-# esta olhando.
+# A premissa estava errada e o custo foi real. Eu olhei tres rodadas de 01/10 que ficaram
+# 45 minutos com `out.md` em zero byte e concluí que a sessao nao subia. Nao era isso:
+# o `out.md` so e escrito QUANDO A RODADA TERMINA. Medido nas que deram certo no mesmo
+# dia — OUVI-148 dev-back (28m26s, gravou 13:39:00 para um fim 13:39:12), OUVI-148
+# dev-front (29m25s, 13:40:11 para 13:40:12), OUVI-149 dev-front (44m11s, 13:55:09 para
+# 13:55:11), OUVI-153 dev-back (5m20s, 13:15:12 para 13:15:14). Silencio durante a
+# rodada e o comportamento normal de TODAS elas, nao sintoma de nada.
+#
+# Com o corte em 8 minutos eu matei a rodada da OUVI-149 as 14:56:06. Ela estava
+# trabalhando: a sessao do kiro
+# (~/.kiro/sessions/cli/c2bd9aaf-1538-44cb-9626-8838193fd39a.jsonl) tinha 351 KB e 58
+# entradas de Prompt/AssistantMessage/ToolResults, escritas ate 14:56:02 — quatro
+# segundos antes de eu derrubar. Teria matado tambem as quatro que deram certo acima.
+#
+# Nao basta aumentar o numero: `out.md` nao e sinal de vida, e um teto de silencio sobre
+# ele mata rodada boa em qualquer valor abaixo do timeout. Para religar isto e preciso um
+# sinal que de fato acompanhe a rodada. O unico que se mostrou fiel e o jsonl da sessao
+# do kiro, e o `hermes-delegar` hoje nao sabe o id dessa sessao. Enquanto nao souber,
+# vale o timeout total e nada mais.
 
 ESPERA_LOTE = 1200   # 20 min: depois disso manda o que tem, mesmo com irmao pendurado
 
@@ -687,7 +697,7 @@ def esperar(proc, reg):
                 pass
         if atual != tamanho:
             tamanho, marca = atual, time.time()
-        elif time.time() - marca >= MUDO_MIN * 60:
+        elif MUDO_MIN > 0 and time.time() - marca >= MUDO_MIN * 60:
             raise Mudo()
 
 

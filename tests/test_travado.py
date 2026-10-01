@@ -41,7 +41,23 @@ def carregar(nome):
 
 
 class RodadaMuda(unittest.TestCase):
-    """Rodada que não escreve nada não é bot pensando — é bot que não subiu."""
+    """O teto de silencio existe, mas vem DESLIGADO — e a historia de por que.
+
+    Eu liguei esse teto em 8 minutos olhando tres rodadas de 01/10 que ficaram 45 min com
+    `out.md` em zero byte, e concluí que a sessao do kiro nao subia. Era conclusao errada
+    sobre dado certo: o `out.md` so e escrito QUANDO A RODADA TERMINA. Nas quatro que
+    deram certo no mesmo dia o mtime do arquivo cai nos ultimos segundos da rodada —
+    OUVI-148 dev-back gravou 13:39:00 para um fim 13:39:12, e a OUVI-149 dev-front ficou
+    44 minutos calada antes de escrever 15 KB de uma vez.
+
+    Com o teto ligado eu matei a rodada da OUVI-149 as 14:56:06. Ela estava trabalhando:
+    o jsonl da sessao do kiro tinha 351 KB e 58 entradas de Prompt/AssistantMessage/
+    ToolResults, escritas ate 14:56:02 — quatro segundos antes. Teria matado as quatro
+    boas tambem.
+
+    Entao o mecanismo fica, desligado, e estes testes guardam as duas coisas: que ele nao
+    dispara no padrao, e que se alguem religar com um sinal melhor ele ainda funciona.
+    """
 
     def setUp(self):
         self.hd = carregar("hermes-delegar")
@@ -52,7 +68,7 @@ class RodadaMuda(unittest.TestCase):
             Path(self.reg[k]).write_text("", encoding="utf-8")
 
     class Falso:
-        """Processo que nunca termina, com um tempo de espera por chamada."""
+        """Processo que nunca termina, ou que termina na n-esima espera."""
 
         def __init__(self, termina_em=None, code=0):
             self.termina_em = termina_em
@@ -66,48 +82,56 @@ class RodadaMuda(unittest.TestCase):
                 return self.code
             raise subprocess.TimeoutExpired("x", timeout)
 
+    def test_vem_desligado(self):
+        # O padrao e 0 e 0 quer dizer desligado — nao "mata na hora", que e o que um
+        # `>= MUDO_MIN * 60` sem guarda faria.
+        self.assertEqual(0, carregar("hermes-delegar").MUDO_MIN)
+
+    def test_desligado_so_o_timeout_total_vale(self):
+        self.hd.MUDO_MIN = 0
+        self.reg["timeout_min"] = 0
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.hd.esperar(self.Falso(), self.reg)
+
+    def test_desligado_nao_mata_rodada_calada_que_ainda_tem_prazo(self):
+        # O caso real: 44 minutos de silencio e depois 15 KB de trabalho.
+        self.hd.MUDO_MIN = 0
+        p = self.Falso(termina_em=3)
+        self.assertEqual(0, self.hd.esperar(p, self.reg))
+
     def test_processo_que_termina_devolve_o_codigo(self):
         self.assertEqual(0, self.hd.esperar(self.Falso(termina_em=2), self.reg))
 
-    def test_silencio_total_vira_Mudo_antes_do_timeout(self):
-        self.hd.MUDO_MIN = 0           # sem esperar de verdade no teste
+    def test_ligado_dispara_no_silencio(self):
+        self.hd.MUDO_MIN = 1.0 / 60          # um segundo, para nao depender de relogio
         with self.assertRaises(self.hd.Mudo):
             self.hd.esperar(self.Falso(), self.reg)
 
-    def test_quem_escreve_nao_e_morto_por_mudez(self):
-        # Rodada longa é normal: em 01/10 um dev levou 29 minutos e estava bem. O que
-        # distingue não é o tempo, é a saída crescer.
-        self.hd.MUDO_MIN = 0
+    def test_ligado_nao_mata_quem_escreve(self):
+        self.hd.MUDO_MIN = 1.0 / 60
         p = self.Falso()
-        escreve = []
+        passos = []
 
         def wait(timeout=None):
-            escreve.append(1)
+            passos.append(1)
             with io.open(self.reg["saida"], "a", encoding="utf-8") as f:
                 f.write("linha\n")
-            if len(escreve) >= 4:
+            if len(passos) >= 4:
                 return 0
             raise subprocess.TimeoutExpired("x", timeout)
 
         p.wait = wait
         self.assertEqual(0, self.hd.esperar(p, self.reg))
 
-    def test_timeout_total_continua_valendo(self):
-        # Quem escreve e nunca termina ainda morre no teto de tempo.
-        self.hd.MUDO_MIN = 999
-        self.reg["timeout_min"] = 0
-        with self.assertRaises(subprocess.TimeoutExpired):
-            self.hd.esperar(self.Falso(), self.reg)
-
     def test_o_aviso_diz_que_a_sessao_nao_subiu(self):
-        # "passou do tempo" mandaria o humano procurar trabalho que não existe.
+        # Se alguem religar o teto, a mensagem tem de dizer a causa certa: "passou do
+        # tempo" mandaria o humano procurar trabalho que nao existe.
         reg = dict(self.reg, status="mudo", projeto=str(Path(tempfile.mkdtemp())),
                    key="X-1", bot="dev-front", estado_antes="IMPLEMENTING",
                    estado_depois="IMPLEMENTING", exit=None)
         (Path(reg["projeto"]) / ".hermes").mkdir(parents=True, exist_ok=True)
         texto, _ = self.hd.aviso_final(reg, {})
-        self.assertIn("não escreveu nada", texto.replace("nao", "não"))
-        self.assertNotIn("passou do tempo", texto)
+        self.assertIn("nao escreveu nada", texto.replace("ão", "ao").replace("não", "nao"))
 
 
 class Branch(unittest.TestCase):
