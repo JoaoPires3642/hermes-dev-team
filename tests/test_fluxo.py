@@ -70,6 +70,15 @@ class TestVarrer(Base):
         self.assertEqual(len(list((self.a.calls / ".dispatch").glob("CALL-*.json"))), 1)
         self.assertEqual(len(self.a.envios()), 1)
 
+    def test_id_da_call_nao_colide_com_call_aberta_pelo_orquestrador(self):
+        # CALL-3 existia no projeto (aberta pelo orquestrador via Telegram, fora do seq do
+        # dispatcher): a call seguinte nascia CALL-3 e o /cliente era recusado.
+        (self.a.acme / ".hermes" / "tasks" / "CALL-3").mkdir(parents=True)
+        self.a.nova_nota()
+        self.ok(self.a.dispatch("varrer"))
+        self.assertEqual(self.a.call("CALL-4")["estado"], "AGUARDANDO_CLIENTE")
+        self.assertFalse((self.a.calls / ".dispatch" / "CALL-1.json").exists())
+
     def test_reenvia_pergunta_que_nao_chegou(self):
         # CALL-6: um "Timed out" isolado do Telegram engoliu a pergunta, sem nova tentativa
         self.a.falhar_envios(3)          # as 3 tentativas da 1ª rodada falham

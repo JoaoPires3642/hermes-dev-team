@@ -250,6 +250,26 @@ def pergunta(call):
     return "\n".join(linhas)
 
 
+def maior_call_nos_projetos():
+    """Maior N de uma CALL-N que já exista em qualquer projeto.
+
+    O `seq` do dispatcher só conhece as calls que passaram por ele. O @orquestrador também abre
+    CALL-N quando o humano traz trabalho pelo Telegram, e esse número não volta para o `seq`:
+    a call seguinte nascia com o id de uma tarefa já existente e o /cliente era recusado com
+    "já tem uma tarefa CALL-N em CLOSED" (CALL-3, 01/10)."""
+    maior = 0
+    try:
+        pastas = projetos()
+    except Negado:
+        return 0
+    for p in pastas:
+        for t in (p / ".hermes" / "tasks").glob("CALL-*"):
+            m = re.fullmatch(r"CALL-(\d+)", t.name)
+            if m:
+                maior = max(maior, int(m.group(1)))
+    return maior
+
+
 def cmd_varrer(_a):
     d = pasta_calls()
     fila = inbox() / FILA
@@ -259,6 +279,8 @@ def cmd_varrer(_a):
     indice = json.loads(indice_f.read_text(encoding="utf-8")) if indice_f.is_file() else {}
     seq_f = d / "seq"
     seq = int(seq_f.read_text().strip() or 0) if seq_f.is_file() else 0
+    if notas:
+        seq = max(seq, maior_call_nos_projetos())
 
     novas, desta_rodada = 0, set()
     for nota in notas:
