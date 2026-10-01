@@ -1,7 +1,7 @@
 ---
 name: tuple-definition-of-ready
-description: Aplique ao redigir, quebrar ou revisar uma issue do TUPLE antes de criá-la. Define o Definition of Ready (contexto de negócio, causa com arquivo:linha, o que NÃO está quebrado, mudança, alternativas descartadas, critérios verificáveis, o teste que precisa falhar, dependências, repo/branch) e a árvore Feature → Story → Task.
-version: 1.0.0
+description: Aplique ao redigir, quebrar ou revisar uma issue do TUPLE antes de criá-la. Define o corpo em quatro seções (Contexto, Escopo, Critérios de aceite, Observações), o título em formato de commit e a árvore Feature → Story → Task.
+version: 1.1.0
 author: Joao Pires
 metadata:
   hermes:
@@ -10,12 +10,16 @@ metadata:
 
 # Definition of Ready — issue do TUPLE
 
-> Adaptado do padrão interno `hypesoftlabs/tuple-workspace` (skill `tuple-definition-of-ready`).
+Uma issue está pronta quando **alguém que não participou da conversa consegue pegá-la e
+começar sem perguntar nada**. Esse é o teste, e o único.
 
-Uma issue está pronta quando **alguém que não participou da investigação consegue
-pegá-la e começar sem perguntar nada**. Esse é o teste, e o único.
+A issue é lida por **pessoas** no board — o dono, quem revisa, quem planeja a sprint.
+Ela diz *o que o usuário passa a poder fazer*, curta e em linguagem de negócio. A parte
+técnica (causa com `arquivo:linha`, arquivos a mexer, alternativas descartadas) mora na
+**story BMAD** em `docs/` (skill `bmad-story`), que é o documento completo; a issue é a
+peça de trabalho. Despejar a story inteira na issue faz ninguém ler nenhuma das duas.
 
-Corpo em markdown, pt-BR acentuado. Lido por humano e por bot.
+Corpo em markdown, pt-BR acentuado.
 
 ## Título: formato de commit
 
@@ -23,23 +27,71 @@ Corpo em markdown, pt-BR acentuado. Lido por humano e por bot.
 Diz **o que muda**, não o que dói. O prefixo é convenção de commit; o campo `type`
 da issue é outra coisa (skill `kanban-tuple`).
 
-## As seções
+## O corpo: quatro seções, nesta ordem
 
-1. **Contexto de negócio** (1º parágrafo, sem título) — o sintoma como o usuário vive:
-   quem sente, o que vê, quando. Cole a evidência literal (tela, log, trecho da call).
-   Em issue de produto: que decisão fica melhor depois disso?
-2. **Causa** — cadeia causal com `arquivo:linha` e o trecho que erra (use o grafo:
-   skill `codebase-memory`). Intermitente → explique a corrida. Causa desconhecida →
-   a issue é de **investigação** e a entrega é a spec; diga isso.
-3. **O que NÃO está quebrado** — delimita o dano; o que já foi verificado intacto.
-4. **Mudança** — arquivos e a alteração, com o porquê de cada uma (a decisão, não o diff).
-5. **Alternativas descartadas** — qual era e por que perdeu.
-6. **Critérios de aceite** — checklist verificável por alguém de fora: o comportamento
-   novo acontece · o vizinho não regrediu · o fallback continua. Nada de "funcionar
-   corretamente".
-7. **Teste** — o teste que **precisa falhar sem o fix**: entrada, saída, onde mora.
-8. **Dependências** — o que bloqueia e por quê; crie a relação `BLOCKS` na API.
-9. **Repo e branch** — `**Repo:** <repo> · **Branch:** <nome> (a partir de <base>)`.
+```markdown
+## Contexto
+
+<1 a 3 frases: quem sente o problema, o que acontece hoje, por que importa.>
+
+## Escopo
+
+- <o que será entregue, em verbo no infinitivo: Buscar…, Avisar…, Levar…>
+
+## Critérios de aceite
+
+- <uma frase por critério, observável por quem não escreveu o código>
+
+## Observações
+
+<origem, dependências, repo/branch, o que ficou em aberto — o que não cabe nas outras três>
+```
+
+**Contexto** — o sintoma como o usuário vive, sem código nem nome de arquivo. Mostre a
+dor com o fato concreto: *"O analista confere na mão se a pessoa já esteve em ouvidoria
+procedente. O sistema conta qualquer caso anterior com o mesmo CPF, sem dizer qual."* Em
+issue de produto: que decisão fica melhor depois disso?
+
+**Escopo** — a lista do que muda, no nível do comportamento, não dos arquivos. Cada item
+é algo que o usuário ou o relatório passa a ter. Se a causa é desconhecida, o primeiro
+item é **achar a causa** — a issue é de investigação e diz isso.
+
+**Critérios de aceite** — frases curtas que se verificam de fora: o comportamento novo
+acontece, o vizinho não regrediu, o limite está dito (*"a busca nunca usa o nome"*). Nada
+de "funcionar corretamente". Sem cerimônia de Dado/Quando/Então na issue — ela vale na
+proposta e na story BMAD, onde o CA vira teste; aqui a frase diz o mesmo, em uma linha,
+sem acrescentar nem tirar condição.
+
+**Observações** — de onde veio (*"Reunião de 29/09/2026 com <quem>"*, `CALL-N`), dependências
+(*"depende de X"*, e crie a relação `BLOCKS` na API), `**Repo:** <repo> · **Branch:** <nome>
+(a partir de <base>)`, dúvida em aberto e quem responde. Causa com `arquivo:linha` **só**
+quando você abriu o código e confirmou, em uma linha; senão fica na story.
+
+### Modelo (ouvidoria, 29/09)
+
+```markdown
+## Contexto
+
+O analista confere na mão se a pessoa já esteve em ouvidoria procedente. O sistema conta
+qualquer caso anterior com o mesmo CPF, sem dizer qual.
+
+## Escopo
+
+- Buscar pelo CPF ou ID os casos anteriores do mesmo cliente concluídos como procedentes.
+- Avisar ao informar o documento, com o número da ouvidoria e o tipo de denúncia.
+- Levar a reincidência ao relatório final.
+
+## Critérios de aceite
+
+- Ao informar o documento, o analista vê se a pessoa é reincidente e em quais ouvidorias.
+- Só contam casos concluídos com desfecho que conta como procedente.
+- A busca nunca usa o nome.
+- O relatório final lista as ouvidorias anteriores de cada envolvido reincidente.
+
+## Observações
+
+Reunião de 29/09/2026 com Edimilson e Anderson (testes do sistema). Ver roadmap.
+```
 
 ## Árvore: Feature → Story → Task
 
@@ -52,12 +104,14 @@ da issue é outra coisa (skill `kanban-tuple`).
 Funcionalidade nova **nunca** nasce como uma issue só. Correção pontual continua
 sendo uma issue só. Ligação por `parentId`, criando **pai antes de filho**.
 
-Cada nível carrega só o que é dele: contexto inteiro na feature; a fatia e os CAs
-observáveis na story; arquivos, CA e teste da própria task na task. Task de 3h com
-"alternativas descartadas" é teatro; task sem CA e sem teste é recado.
+Cada nível usa as mesmas quatro seções, com o que é dele: a **feature** tem Contexto e
+Escopo (as fatias) e Observações, sem critérios próprios — os dela são os das stories; a
+**story** tem os quatro, com os CAs observáveis; a **task** tem os quatro, curtos, e em
+Observações o teste que falha sem a mudança, se já se sabe onde ele mora. Task de 3h com
+um parágrafo de contexto é teatro; task sem critério é recado.
 
 **Régua da task: 2h a 8h.** Menos → junte. Mais → quebre. Não dá para quebrar com
-honestidade → falta investigação: pare na story e escreva nela:
+honestidade → falta investigação: pare na story e escreva em Observações:
 
 ```markdown
 ## Quebra em tasks — pendente
@@ -82,9 +136,11 @@ Chute registrado vira compromisso alheio: só preencha quando souber.
 ## Antes de criar, releia procurando
 
 - Frase que só faz sentido para quem estava na conversa? Reescreva.
+- Contexto com nome de arquivo, função ou stack trace? Isso é da story: tire.
+- Escopo listando arquivos em vez de comportamento? Reescreva como o que o usuário ganha.
 - CA que você não sabe verificar? Não é CA.
 - Afirmação sobre código que você não abriu? Abra ou remova.
-- Segredo, token, dado de cliente no corpo? Fora — a issue é lida pelo workspace inteiro.
+- Segredo, token, CPF ou dado pessoal real no corpo? Fora — a issue é lida pelo workspace inteiro.
 - O título sozinho, na lista do board, diz o que muda?
 - Funcionalidade nova virando uma issue só? Falta a árvore.
 - Task fora de 2–8h, ou estimate em feature/story?

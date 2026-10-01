@@ -14,6 +14,9 @@ no TUPLE, então é você quem cria as issues:
 1. Leia o handoff, o resumo e a **proposta aprovada** (`.hermes/tasks/CALL-N/`).
 2. Crie no TUPLE, em `BACKLOG`, exatamente as issues da proposta (skill `kanban-tuple`:
    procure antes, nunca duplique, log `ref → key → id`).
+   A descrição de cada issue é o **corpo que o @po escreveu na proposta**, nas quatro
+   seções (Contexto · Escopo · Critérios de aceite · Observações): copie, não resuma nem
+   reescreva. Item da proposta sem corpo pronto: não crie com título solto; devolva ao @po.
 3. Para cada uma: `hermes-task new "$P" <ISSUE-KEY> --objetivo "..." --agentes <devs> --herda-gate1 CALL-N`.
 4. Handoff para o @po com a tabela `KEY · tipo · título` e chame
    `hermes-delegar po "$P" CALL-N <handoff>`. Termine com a tabela e, separado, os desvios.

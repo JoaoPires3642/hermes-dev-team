@@ -1,7 +1,7 @@
 ---
 name: bmad-story
 description: Aplique ao escrever ou revisar uma story/PBI. Define o template BMAD do time (1 story = 1 PBI), o checklist de DoR que libera o GATE 2 e como derivar o .kiro/specs a partir da story aprovada.
-version: 1.0.0
+version: 1.1.0
 author: Joao Pires
 metadata:
   hermes:
@@ -63,9 +63,11 @@ tuple_key: <PREFIX-123>
 
 ## DoR (Definition of Ready) — checklist antes de pedir o GATE 2
 
-As issues no TUPLE seguem a skill `tuple-definition-of-ready` (árvore, 2–8h,
-causa com `arquivo:linha`, o que NÃO está quebrado, teste que falha sem o fix).
-A story BMAD em `docs/` é o documento completo; a issue é a peça de trabalho.
+As issues no TUPLE seguem a skill `tuple-definition-of-ready` (árvore, 2–8h, corpo em
+quatro seções: Contexto, Escopo, Critérios de aceite, Observações). Causa com `arquivo:linha`,
+o que NÃO está quebrado e o teste que falha sem o fix moram **aqui**, na story — a issue só
+os cita quando confirmados. A story BMAD em `docs/` é o documento completo; a issue é a
+peça de trabalho.
 
 
 - [ ] Objetivo e história de usuário claros, sem termo ambíguo.

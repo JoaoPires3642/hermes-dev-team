@@ -20,6 +20,10 @@ isso que o humano aprova no GATE 1 — e exatamente isso que o @pm vai criar no 
      formato de commit · tipo · prioridade · estimativa (só task, 2–8h), **com a soma de
      horas por story e no total**;
    - por story, os **critérios de aceite** em Dado / Quando / Então, numerados;
+   - para cada item da árvore, o **corpo da issue já escrito** nas quatro seções da skill
+     `tuple-definition-of-ready` (Contexto · Escopo · Critérios de aceite · Observações):
+     é exatamente o texto que o @pm vai colar no TUPLE, então o humano aprova o que vai
+     ler no board — não um resumo dele;
    - o que ficou **fora** (hipótese, não issue) e as dúvidas que só o humano responde;
    - os ⚠️ que o @orquestrador levantou, sem cortar.
    Antes de propor, procure no TUPLE se já existe (`issues.list` com `search`).
