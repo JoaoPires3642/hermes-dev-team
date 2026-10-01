@@ -1,7 +1,7 @@
 ---
 name: kanban-tuple
 description: Aplique antes de qualquer operação no Kanban Tuple (fonte da verdade das tasks). Cobre autenticação por variável de ambiente, convenção tRPC, ciclo de vida obrigatório da issue, o que a API key não alcança e o que exige OK humano.
-version: 1.1.0
+version: 1.2.0
 author: Joao Pires
 metadata:
   hermes:
@@ -84,7 +84,9 @@ tuple-api "$P" post issues.addComment \
 ```
 
 - `issues.list`: `limit` ≤ 100; paginar com `offset` usando o `total`.
-- `status` é um valor só. Não existe "mover card": é `issues.update` com `status`.
+- **A coluna tem dois campos: `status` (o nome) e `stateId` (o id da coluna).** Não existe
+  "mover card": é `issues.update`, e **mover é mandar os dois**, `status` e o `stateId` da
+  coluna de destino (seção *Mover de coluna*). Só `status` deixa o `stateId` para trás.
 - Procedures úteis: `issues.list`, `issues.getById`, `issues.getByKey`,
   `issues.getByKeyWithDetails`, `issues.create` (`title` + `teamId` obrigatórios;
   `parentId` para subtask), `issues.update`, `issues.addComment`,
@@ -151,6 +153,39 @@ Prioridade: `URGENT` · `HIGH` · `MEDIUM` · `LOW` · `NONE`
 **O workflow não deixa pular coluna**: `BACKLOG → IN_PROGRESS` direto falha. Passar
 por `TODO` (duas chamadas).
 
+## Mover de coluna: `status` e `stateId` juntos
+
+`issues.getByKey`, `issues.getByKeyWithDetails` e `issues.list` devolvem os dois campos.
+Mexer só no `status` deixa o `stateId` na coluna antiga, e a issue passa a dizer uma coisa
+e estar em outra. Na Ouvidoria, em 01/10, 4 de 166 issues estavam assim: três em
+`IN_REVIEW` com o id da coluna `IN_PROGRESS` e uma em `IN_PROGRESS` com o id de `IN_REVIEW`.
+
+1. `issues.update` com `{"id", "status", "stateId"}` — os dois, no mesmo comando.
+2. **Confira**: `issues.getByKey` e veja que `status` e `stateId` bateram com o pedido. Se o
+   `status` mudou e o `stateId` não, mande o `stateId` de novo, sozinho.
+3. `BLOCKED` não tem saída por `status` ("Cannot move from BLOCKED to X"); o `stateId`
+   não passa por essa checagem. Mas só quem pode tirar uma tarefa de `BLOCKED` é o humano.
+
+**De onde vem o `stateId` de destino.** `projects.getById.workflowStatuses` traz só os
+nomes, e `workflowStates` é bloqueado para API key. Leia do board: agrupe `issues.list`
+por `status` e pegue o `stateId` **de uma coluna em que todas as issues carregam o mesmo
+id**. Duas armadilhas:
+- Um `stateId` que aparece com **dois** `status` não vale para nenhum dos dois: é
+  exatamente o sintoma de issue movida só por `status`. Pegar "o da primeira issue que
+  está em IN_REVIEW" devolve o id da coluna errada.
+- Se não achar um id limpo para o destino, **não adivinhe**: mova só o `status`, diga no
+  comentário que o `stateId` ficou sem confirmar, e avise o humano.
+
+Os ids são cuid em ordem de criação e seguem a ordem das colunas (`BACKLOG`, `TODO`,
+`IN_PROGRESS`, `IN_REVIEW`, `BLOCKED`, `DONE`, `CANCELLED`): na Ouvidoria as cinco colunas
+sem ambiguidade batiam com essa ordem, o que indica qual dos dois ids misturados é de
+`IN_PROGRESS` e qual é de `IN_REVIEW`. **É inferência, não documentação da API.** Serve
+para o humano conferir, não para o bot corrigir issue de outro em lote.
+
+**Issue com `status` e `stateId` em colunas diferentes** (ache pelas regras acima): é
+relatório, não conserto. Liste as KEYs e o que cada campo diz, e deixe o humano decidir
+qual dos dois estava certo.
+
 ## Ciclo de vida (regra de ouro: nenhuma issue é trabalhada fora da coluna certa)
 
 **Quem está trabalhando aparece no comentário, não no campo dono.** A coluna `Dono`
@@ -195,7 +230,7 @@ Nunca `DONE` por implementação parcial, teste falhando ou CA não verificado.
 
 ## Permissão
 
-- **Livre**: ler; mover status do próprio trabalho; comentar progresso — inclusive
+- **Livre**: ler; mover status e `stateId` do próprio trabalho; comentar progresso — inclusive
   o comentário que marca que você assumiu, já que o campo dono não é preenchível.
 - **Criar issue**: só depois do GATE 1 aprovado. Nasce em `BACKLOG`, anunciada na
   sala com `key` e título.
