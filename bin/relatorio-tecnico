@@ -48,7 +48,10 @@ for _f in (sys.stdout, sys.stderr):
 
 OK, ERRO, USO = 0, 1, 2
 PERFIL = "arquiteto"
-DESTINO_PADRAO = "telegram:5057406158"
+# "telegram" sem id = o TELEGRAM_HOME_CHANNEL do profile do arquiteto (hoje o grupo). Tinha o
+# id do privado do humano fixo aqui: bot só fala no privado quando o humano fala com ele ali;
+# tudo que sai por conta própria vai para o grupo, e o destino mora no .env, não no código.
+DESTINO_PADRAO = "telegram"
 
 
 def raiz_projetos() -> Path:

@@ -108,17 +108,24 @@ def diagnosticar(raiz, limite):
 
 
 def credenciais(raiz):
-    """Token e chat do profile do @orquestrador. O valor nunca é impresso."""
+    """Token e chat do profile do @orquestrador. O valor nunca é impresso.
+
+    O chat é o do grupo: o alerta de gateway fora do ar é aviso por conta própria, e bot só
+    fala no privado quando o humano fala com ele ali. Ordem: HERMES_ALERTA_CHAT_ID, depois o
+    TELEGRAM_HOME_CHANNEL do orquestrador; a sessão de DM é só o último recurso, porque era
+    o único caminho antes e mandava o alerta para o privado."""
     env = raiz / "profiles" / "orquestrador" / ".env"
-    token = None
+    token, home = None, None
     try:
         for linha in env.read_text(encoding="utf-8").splitlines():
             if linha.startswith("TELEGRAM_BOT_TOKEN="):
                 token = linha.split("=", 1)[1].strip().strip("\"'")
+            elif linha.startswith("TELEGRAM_HOME_CHANNEL="):
+                home = linha.split("=", 1)[1].strip().strip("\"'") or None
     except OSError:
         pass
 
-    chat = os.getenv("HERMES_ALERTA_CHAT_ID")
+    chat = os.getenv("HERMES_ALERTA_CHAT_ID") or home
     if not chat:
         # a sessão do DM guarda o chat: agent:<bot>:telegram:dm:<chat_id>
         try:

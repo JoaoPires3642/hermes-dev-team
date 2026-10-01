@@ -61,9 +61,11 @@ Depois, uma vez por máquina:
      é recusado para não colocar dois pollers no mesmo token.
    - conferir: `hermes gateway status`
    - no `.env` de cada profile com Telegram (`~/.hermes/profiles/<bot>/.env`):
-     `TELEGRAM_ALLOWED_USERS=<seu id>` (o @userinfobot diz) e `TELEGRAM_HOME_CHANNEL=<seu id>`
-     — sem o primeiro o bot ignora você; sem o segundo o `hermes send` (gates, avisos) não
-     tem para onde mandar. Depois `hermes gateway restart`.
+     `TELEGRAM_ALLOWED_USERS=<seu id>` (o @userinfobot diz) e `TELEGRAM_HOME_CHANNEL=<id do
+     grupo do time>` (negativo, ex. `-5418161150`) — sem o primeiro o bot ignora você; sem o
+     segundo o `hermes send` (gates, avisos, relatórios) não tem para onde mandar.
+     **O destino é o grupo, não o seu privado**: bot só fala no privado quando você fala com
+     ele ali; tudo que sai por conta própria vai para o grupo. Depois `hermes gateway restart`.
 5. `HERMES_PROJETOS` no **`~/.hermes/.env`** — a pasta que contém os projetos (numa máquina
    com OneDrive corporativo, costuma ser `~/OneDrive - <Org>/Documentos`). Vai no `.env` do
    Hermes, e não só no shell, porque o gateway e o job das calls rodam como serviço e não

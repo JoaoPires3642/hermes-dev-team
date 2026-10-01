@@ -142,3 +142,7 @@
   Telegram, porque o gateway é justamente o que cairia.
 - ℹ️ Entrega de routine: use `telegram:<chat_id>`. O alvo genérico `telegram` não resolve
   (o diretório de canais fica vazio) e falha sem alarde.
+- ℹ️ **Para onde o bot fala:** o grupo do time, nunca o privado do humano. O privado só recebe
+  resposta de quando o humano fala ali. Por isso `TELEGRAM_HOME_CHANNEL` de todo profile (o que
+  `hermes send` usa) e o `deliver` de toda routine apontam para o id do grupo (negativo).
+  `relatorio-tecnico` e `gateway-heartbeat` leem o destino do `.env`, sem id fixo no código.
