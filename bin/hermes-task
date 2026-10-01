@@ -769,6 +769,32 @@ def _tuple(root, *args, timeout=60):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, creationflags=SEM_JANELA)
 
 
+def _state_id(root, alvo):
+    """`stateId` da coluna `alvo`, lido de uma issue que já esteja nela.
+
+    O projeto não expõe os workflowStatuses pela API (`projects.getById` devolve os
+    campos vazios), então a via confiável é observar o board: qualquer issue parada
+    na coluna certa carrega o id dela.
+    """
+    try:
+        ctx = _tuple(root, "contexto")
+        if ctx.returncode:
+            return None
+        c = json.loads(ctx.stdout)
+        inp = {"workspaceId": c.get("workspaceId"), "limit": 100}
+        if c.get("projectId"):
+            inp["projectId"] = c["projectId"]
+        r = _tuple(root, "get", "issues.list", json.dumps(inp))
+        if r.returncode:
+            return None
+        for i in json.loads(r.stdout)["result"]["data"].get("issues", []):
+            if i.get("status") == alvo and i.get("stateId"):
+                return i["stateId"]
+    except Exception:
+        return None
+    return None
+
+
 def sincronizar_tuple(root, key, estado, motivo=""):
     """Move a issue no TUPLE junto com a transição local.
 
@@ -817,8 +843,17 @@ def sincronizar_tuple(root, key, estado, motivo=""):
 
         u = _tuple(root, "post", "issues.update",
                    json.dumps({"id": issue["id"], "status": alvo}))
-        if u.returncode:
-            return ("erro", f"issues.update falhou para {alvo}")
+        if u.returncode or '"error"' in (u.stdout or ""):
+            # `status` é validado contra as transições do workflow, e BLOCKED não tem
+            # saída por ali ("Cannot move from BLOCKED to X in this workflow" — vale
+            # para os 7 outros status). `stateId` aponta direto para a coluna e não
+            # passa por essa checagem; é o que a interface usa.
+            alvo_id = _state_id(root, alvo)
+            if alvo_id:
+                u = _tuple(root, "post", "issues.update",
+                           json.dumps({"id": issue["id"], "stateId": alvo_id}))
+            if u.returncode or '"error"' in (u.stdout or ""):
+                return ("erro", f"issues.update recusou {alvo} (status e stateId)")
         return ("ok", f"TUPLE movido para {alvo}")
     except Exception as e:                                    # rede, timeout, JSON
         return ("erro", f"{type(e).__name__}")
