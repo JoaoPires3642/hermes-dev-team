@@ -23,6 +23,7 @@ Códigos de saída: 0 ok · 1 erro · 2 uso
 """
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -258,6 +259,7 @@ def ler_reunioes(con):
             "pasta": pasta,
             "assunto": assunto or "(sem título)",
             "criado_em": (n["created_at"] if tem("created_at") else "") or "",
+            "atualizado_em": (n["updated_at"] if tem("updated_at") else "") or "",
             "duracao": (n["audio_duration_seconds"] if tem("audio_duration_seconds") else None),
             "participantes": (n["participants"] if tem("participants") else "") or "",
             "vozes": vozes,
@@ -267,25 +269,84 @@ def ler_reunioes(con):
     return reunioes
 
 
-def escrever_nota(r, inbox):
+def corpo_da_nota(r):
+    """O que a nota DIZ (notas + transcrição), na forma exata em que vai para o .md.
+
+    É isto que se compara entre uma exportação e a seguinte: o texto de uma call só
+    cresce no fim (fala nova), então o que já foi exportado é o começo do atual."""
+    partes = []
+    if r["notas"]:
+        partes += ["## Notas", "", r["notas"], ""]
+    if r["transcricao"]:
+        partes += ["## Transcrição", "", r["transcricao"], ""]
+    return "\n".join(partes).strip()
+
+
+def impressao(texto):
+    return hashlib.sha1(texto.encode("utf-8")).hexdigest()
+
+
+def corpo_ja_exportado(inbox, r):
+    """Notas exportadas ANTES de existir o registro por nota (`notas` na marca) não dizem
+    o que já saiu. Quem diz é o próprio .md daquela exportação: o corpo começa no 1º
+    cabeçalho `## Notas`/`## Transcrição`. None = o arquivo não está mais lá."""
     data = str(r["criado_em"])[:10] or dt.date.today().isoformat()
+    caminho = inbox / slug(r["cliente"]) / (data + "-" + slug(r["assunto"]) + ".md")
+    try:
+        texto = caminho.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r"^## (Notas|Transcrição)$", texto, re.M)
+    return texto[m.start():].strip() if m else None
+
+
+def escrever_nota(r, inbox, parte=None, acrescimo=None):
+    """Nota inteira (parte=None) ou só o que entrou depois da exportação anterior.
+
+    Antes, nota editada depois de exportada nunca mais saía: a marca d'água era o
+    `created_at`, e acrescentar fala numa nota existente não o muda — o @orquestrador
+    não via a call nova. `parte` é o nº da parte (2, 3...) e `acrescimo` o trecho novo."""
+    data = str(r["criado_em"])[:10] or dt.date.today().isoformat()
+    if parte:
+        data = str(r["atualizado_em"] or r["criado_em"])[:10] or data
+    assunto = r["assunto"]
+    if parte:
+        assunto += " (parte %d)" % parte
     destino = inbox / slug(r["cliente"])
     destino.mkdir(parents=True, exist_ok=True)
-    caminho = destino / (data + "-" + slug(r["assunto"]) + ".md")
+    base = data + "-" + slug(r["assunto"]) + ("-parte-%d" % parte if parte else "")
+    caminho = destino / (base + ".md")
+    while parte and caminho.exists():
+        parte += 1
+        caminho = destino / (data + "-" + slug(r["assunto"]) + "-parte-%d.md" % parte)
 
     cab = ["---",
            "note_id: " + r["id"],
            "cliente: " + r["cliente"],
-           "titulo: " + r["assunto"],
-           "criado_em: " + str(r["criado_em"]),
+           "titulo: " + assunto,
+           "criado_em: " + str((r["atualizado_em"] if parte else r["criado_em"]) or r["criado_em"]),
            "fonte: openwhispr"]
+    if parte:
+        cab.append("continuacao_da_nota: " + r["id"])
     if r["pasta"]:
         cab.append("pasta: " + r["pasta"])
     if r["vozes"]:
         cab.append("vozes: " + ", ".join(r["vozes"]))
     cab.append("---")
 
-    partes = cab + ["", "# " + r["assunto"], ""]
+    partes = cab + ["", "# " + assunto, ""]
+    if parte:
+        # o @orquestrador resume o que lê: sem este aviso ele trataria como call inteira
+        # o que é só o final de uma nota cujo começo já foi triado.
+        partes += ["> Cliente: **" + r["cliente"] + "** · continuação da nota " + r["id"] + ", "
+                   "acrescentada em " + data + ". **Só o trecho novo**: o que veio antes já foi "
+                   "triado em outra call. Transcrita localmente pelo OpenWhispr.", ""]
+        if r["vozes"]:
+            partes += ["## Quem falou", "", ", ".join(r["vozes"]), ""]
+        partes += ["## Transcrição", "", acrescimo.strip(), ""]
+        caminho.write_text("\n".join(partes), encoding="utf-8")
+        return caminho
+
     resumo = "> Cliente: **" + r["cliente"] + "** · call de " + data
     if r["duracao"]:
         try:
@@ -298,10 +359,9 @@ def escrever_nota(r, inbox):
         partes += ["## Quem falou", "", ", ".join(r["vozes"]), ""]
     elif r["participantes"]:
         partes += ["## Participantes", "", r["participantes"], ""]
-    if r["notas"]:
-        partes += ["## Notas", "", r["notas"], ""]
-    if r["transcricao"]:
-        partes += ["## Transcrição", "", r["transcricao"], ""]
+    corpo = corpo_da_nota(r)
+    if corpo:
+        partes += [corpo, ""]
 
     caminho.write_text("\n".join(partes), encoding="utf-8")
     return caminho
@@ -347,11 +407,73 @@ def main():
         trava.unlink(missing_ok=True)
 
 
+# Conta caracteres SEM espaço nem rótulo de falante (ver `normalizar`): ~200 deles são duas
+# frases. Abaixo disso é "ok", "certo", uma palavra corrigida — não é conversa nova.
+MIN_ACRESCIMO = 200
+
+
+ROTULO = re.compile(r"^\*\*[^*\n]+\*\*: ", re.M)
+
+
+def normalizar(corpo):
+    """(texto, mapa): o corpo sem rótulo de falante e sem espaço, e onde cada caractere dele
+    estava no corpo original.
+
+    Comparar o texto renderizado não serve: o OpenWhispr refaz a diarização depois, e a mesma
+    fala que saiu como `**voz 16**: ...` num parágrafo vira continuação de outro. Em dado real
+    (nota 7), o texto exportado diverge do atual no caractere 3.403 só por isso — e a fala é
+    a mesma. O que identifica o que já saiu é o que foi DITO, na ordem."""
+    fora = set()
+    for m in ROTULO.finditer(corpo):
+        fora.update(range(m.start(), m.end()))
+    mapa = [i for i, c in enumerate(corpo) if i not in fora and not c.isspace()]
+    return "".join(corpo[i] for i in mapa), mapa
+
+
+def referencia(corpo):
+    """O que guardar de um corpo exportado para reconhecê-lo depois: o tamanho e a
+    impressão digital do que foi dito (ver `normalizar`), nunca o texto."""
+    norm, _ = normalizar(corpo)
+    return {"n": len(norm), "sha_n": impressao(norm)}
+
+
+def decidir(r, inbox, reg, desde):
+    """O que fazer com uma nota: ("nova", None) · ("parte", trecho) · ("nada", motivo).
+
+    `reg` = a referência guardada na marca (ou None). A marca só guardava `created_at`,
+    então nota editada depois de exportada nunca mais saía."""
+    corpo = corpo_da_nota(r)
+    if not reg:
+        if not desde or str(r["criado_em"]) > desde:
+            return "nova", None
+        # exportada antes de a marca guardar o corpo: o .md daquela exportação diz o que saiu
+        ja = corpo_ja_exportado(inbox, r)
+        if ja is None:
+            return "nada", "sem-registro"
+        reg = referencia(ja)
+    norm, mapa = normalizar(corpo)
+    if len(norm) == reg["n"] and impressao(norm) == reg["sha_n"]:
+        return "nada", None
+    if len(norm) < reg["n"] or impressao(norm[:reg["n"]]) != reg["sha_n"]:
+        return "nada", "reescrita"             # mexeram no que já saiu, não só acrescentaram
+    if len(norm) - reg["n"] < MIN_ACRESCIMO:
+        return "nada", "acrescimo-pequeno"     # a marca não avança: acumula até valer
+    inicio = mapa[reg["n"]]
+    rotulo = re.search(r"\*\*[^*\n]+\*\*: \s*$", corpo[:inicio])
+    return "parte", corpo[rotulo.start() if rotulo else inicio:]
+
+
 def _exportar(args, db, inbox):
     marca = inbox / MARCA
-    desde = ""
-    if args.comando == "novas" and marca.is_file():
-        desde = json.loads(marca.read_text(encoding="utf-8")).get("ate", "")
+    desde, registro = "", {}
+    if marca.is_file():
+        try:
+            dados = json.loads(marca.read_text(encoding="utf-8"))
+        except ValueError:
+            dados = {}
+        if args.comando == "novas":
+            desde = dados.get("ate", "")
+        registro = dados.get("notas") or {}
 
     con = abrir_somente_leitura(db)
     try:
@@ -359,12 +481,33 @@ def _exportar(args, db, inbox):
     finally:
         con.close()
 
-    novas = [r for r in reunioes if str(r["criado_em"]) > desde] if desde else reunioes
-    criados = []
-    for r in novas:
-        caminho = escrever_nota(r, inbox)
-        criados.append(caminho)
-        print(caminho)
+    criados, novos_registros = [], dict(registro)
+    for r in reunioes:
+        corpo = corpo_da_nota(r)
+        if args.comando == "todas":
+            acao, extra = "nova", None
+        else:
+            acao, extra = decidir(r, inbox, registro.get(r["id"]), desde)
+        if acao == "nova":
+            caminho = escrever_nota(r, inbox)
+            criados.append(caminho)
+            print(caminho)
+            novos_registros[r["id"]] = referencia(corpo)
+        elif acao == "parte":
+            caminho = escrever_nota(r, inbox, parte=2, acrescimo=extra)
+            criados.append(caminho)
+            print(caminho)
+            registrar(inbox, "nota %s cresceu: parte nova em %s (%d chars)" % (r["id"], caminho.name, len(extra)))
+            novos_registros[r["id"]] = referencia(corpo)
+        elif extra == "acrescimo-pequeno":
+            registrar(inbox, "nota %s cresceu pouco (<%d chars): espero acumular" % (r["id"], MIN_ACRESCIMO))
+        else:
+            if extra == "reescrita":
+                registrar(inbox, "nota %s: texto alterado antes do fim, nao so acrescentado — "
+                                 "nao exportei; passa a ser a referencia (`todas` reexporta)" % r["id"])
+            if extra in ("reescrita", "sem-registro") or r["id"] not in registro:
+                novos_registros[r["id"]] = referencia(corpo)   # a referência de agora
+    novas = criados
 
     # Fila para o @orquestrador. Ele NÃO controla o que já leu: a routine dele roda a
     # cada 15 min e, sem isso, re-triava as mesmas notas indefinidamente (a ponto de
@@ -391,7 +534,8 @@ def _exportar(args, db, inbox):
     if reunioes:
         marca.write_text(json.dumps(
             {"ate": max(str(r["criado_em"]) for r in reunioes),
-             "exportado_em": dt.datetime.now().isoformat(timespec="seconds")},
+             "exportado_em": dt.datetime.now().isoformat(timespec="seconds"),
+             "notas": novos_registros},
             ensure_ascii=False), encoding="utf-8")
 
     registrar(inbox, str(len(novas)) + " nota(s) de " + str(len(reunioes)) + " reuniao(oes)")
