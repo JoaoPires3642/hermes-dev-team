@@ -259,42 +259,81 @@ class DevCalado(unittest.TestCase):
 
 
 class Branch(unittest.TestCase):
-    """`compartilhada` quer dizer UMA branch do time, e isso tem de ser codigo."""
+    """`compartilhada` quer dizer UMA branch do time, e isso tem de ser codigo.
+
+    A checagem e o `conflito_de_branch`, escrito pelo @manutencao em 0bc0b3a. Ele cruza
+    com as outras tarefas VIVAS do projeto, que e o jeito certo de ver a contradicao, e
+    tambem pega `por-tarefa` reusando a branch de outra. Eu havia escrito uma segunda
+    funcao em paralelo (`conferir_branch`), mais pobre; o unico caso que so a minha
+    pegava — nome com a KEY da propria tarefa quando ainda nao ha irma para divergir —
+    foi dobrado na dele e a minha saiu. Duas checagens sobrepostas, com mensagens
+    diferentes para o mesmo erro, apodrecem: a proxima pessoa corrige uma e acha que
+    corrigiu as duas.
+    """
 
     def setUp(self):
         self.ht = carregar("hermes-task")
+        self.proj = Path(tempfile.mkdtemp()) / "acme"
+        (self.proj / ".hermes" / "tasks").mkdir(parents=True)
 
-    def test_os_seis_casos_reais_de_01_10(self):
-        casos = [("OUVI-148", "compartilhada", "feature/ouvi-148-devolucao", True),
-                 ("OUVI-149", "compartilhada", "develop", False),
-                 ("OUVI-150", "compartilhada", "fix/ouvi-150-tipo-ativo", True),
-                 ("OUVI-152", "compartilhada", None, True),
-                 ("OUVI-153", "compartilhada", "develop", False),
-                 ("OUVI-154", "compartilhada", "feature/ouvi-154-lista", True)]
-        for key, est, nome, nega in casos:
-            e = self.ht.conferir_branch(key, {"estrategia": est, "nome": nome})
-            self.assertEqual(nega, e is not None, (key, est, nome, e))
+    def conflito(self, key, est, nome, base="develop"):
+        return self.ht.conflito_de_branch(self.proj, key, est, nome, base)
 
-    def test_por_tarefa_pode_ter_branch_propria(self):
-        # A estrategia existe; o que nao pode e dizer uma e fazer a outra.
-        self.assertIsNone(self.ht.conferir_branch(
-            "OUVI-154", {"estrategia": "por-tarefa",
-                         "nome": "feature/ouvi-154-lista"}))
+    def irma(self, key, est, nome, estado="IMPLEMENTING"):
+        d = self.proj / ".hermes" / "tasks" / key
+        d.mkdir(exist_ok=True)
+        (d / "manifest.yaml").write_text(
+            yaml.safe_dump({"task_id": key, "estado": estado,
+                            "branch": {"estrategia": est, "nome": nome}}),
+            encoding="utf-8")
 
-    def test_sem_estrategia_nao_passa(self):
-        self.assertIsNotNone(self.ht.conferir_branch("X-1", {"nome": "develop"}))
-        self.assertIsNotNone(self.ht.conferir_branch("X-1", None))
-
-    def test_a_mensagem_diz_a_causa_e_as_duas_saidas(self):
-        e = self.ht.conferir_branch("OUVI-154", {"estrategia": "compartilhada",
-                                                 "nome": "feature/ouvi-154-x"})
+    def test_compartilhada_com_branch_da_propria_tarefa_nega_mesmo_sendo_a_primeira(self):
+        # Caso real da OUVI-148: preparou `feature/ouvi-148-...` as 13:12 sem nenhuma
+        # irma para divergir, e as 13:18 a OUVI-154 trocou o checkout por cima dela.
+        e = self.conflito("OUVI-148", "compartilhada",
+                          "feature/ouvi-148-devolucao-compliance-condicional")
+        self.assertIsNotNone(e)
+        self.assertIn("UMA só", e)
         self.assertIn("working tree", e)
         self.assertIn("por-tarefa", e)
 
+    def test_compartilhada_na_branch_do_time_passa(self):
+        self.assertIsNone(self.conflito("OUVI-149", "compartilhada", "time/sprint-42"))
+
+    def test_compartilhada_na_base_protegida_nega(self):
+        # OUVI-149 e 153 tinham `nome: develop`: bot nao trabalha na base.
+        self.assertIsNotNone(self.conflito("OUVI-149", "compartilhada", "develop"))
+
+    def test_descida_de_uma_nao_mascara_divergencia_da_outra(self):
+        # A checagem cruzada dele: irma viva com outro nome compartilhado contradiz.
+        self.irma("OUVI-150", "compartilhada", "time/sprint-42")
+        e = self.conflito("OUVI-149", "compartilhada", "time/sprint-99")
+        self.assertIsNotNone(e)
+        self.assertIn("UMA só", e)
+
+    def test_por_tarefa_pode_ter_branch_propria(self):
+        self.assertIsNone(self.conflito("OUVI-154", "por-tarefa",
+                                        "feature/ouvi-154-lista"))
+
+    def test_por_tarefa_nao_reusa_a_branch_de_outra(self):
+        self.irma("OUVI-150", "por-tarefa", "feature/ouvi-150-x")
+        self.assertIsNotNone(self.conflito("OUVI-154", "por-tarefa",
+                                           "feature/ouvi-150-x"))
+
     def test_nao_confunde_key_de_outra_tarefa_com_a_propria(self):
-        # Branch do time que por acaso cite outra issue nao e branch desta tarefa.
-        self.assertIsNone(self.ht.conferir_branch(
-            "OUVI-154", {"estrategia": "compartilhada", "nome": "release/ouvi-900"}))
+        self.assertIsNone(self.conflito("OUVI-154", "compartilhada",
+                                        "release/ouvi-900"))
+
+    def test_nome_vazio_nao_e_erro_aqui(self):
+        # `branch` e evidencia de SPEC_APPROVED -> IMPLEMENTING: e definido DEPOIS do
+        # gate. O `nome: null` da OUVI-152 no gate estava certo, e a regra que eu havia
+        # posto exigindo nome ali travava o fluxo.
+        self.assertIsNone(self.conflito("OUVI-152", "compartilhada", None))
+
+    def test_existe_uma_checagem_so(self):
+        # O ponto da fusao: duas funcoes para o mesmo erro e o que apodrece.
+        self.assertFalse(hasattr(self.ht, "conferir_branch"))
+        self.assertTrue(hasattr(self.ht, "conflito_de_branch"))
 
 
 class Vagas(unittest.TestCase):
