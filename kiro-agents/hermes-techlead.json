@@ -43,7 +43,9 @@
         "capability": "shell",
         "match": [
           "hermes-task * --by humano*",
-          "hermes-task *--by=humano*"
+          "hermes-task *--by=humano*",
+          "hermes-task * --by auditor*",
+          "hermes-task *--by=auditor*"
         ],
         "effect": "deny"
       },

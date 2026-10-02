@@ -558,9 +558,12 @@ def cmd_aprovar(a):
 
 - Resumo: {art.get('resumo')}
 - Proposta aprovada: {art.get('proposta')}
+- Corpos das issues (o texto que vai para o board): {art.get('corpos') or '(na proposta)'}
 
 **Faça:**
-1. Crie no TUPLE, em BACKLOG, as issues da proposta (skill `kanban-tuple`).
+1. Crie no TUPLE, em BACKLOG, as issues novas da proposta, com a descrição copiada dos
+   corpos (skill `kanban-tuple`). Alteração em issue que já existe (desbloquear, ajustar
+   texto) também está nos corpos: aplique a que a proposta aprovou.
 2. Para cada issue criada: `hermes-task new "{proj}" <ISSUE-KEY> --objetivo "..." --agentes <devs> --herda-gate1 {a.key}`
    (ela nasce em SPECIFYING com o GATE 1 herdado desta call).
 3. Registre as KEYs criadas num handoff para o @po e chame:
@@ -597,8 +600,11 @@ def cmd_ajustar(a):
     a.key = m["task_id"]
     estado = m.get("estado")
     if estado == "AWAITING_APPROVAL":
+        # só os ajustes do humano: a auditoria também devolve ao @po (`--by auditor`), e
+        # isso não pode gastar o limite de quem decide
         voltas = sum(1 for h in m.get("historico") or []
-                     if h.get("de") == "AWAITING_APPROVAL" and h.get("para") == "TRIAGED")
+                     if h.get("de") == "AWAITING_APPROVAL" and h.get("para") == "TRIAGED"
+                     and h.get("por") == "humano")
         if voltas >= MAX_AJUSTES:
             raise Negado(f"{a.key} já teve {voltas} ajustes no GATE 1. Decida: /aprovar ou /rejeitar")
         # Por padrão o ajuste é da quebra (@po). Começou com "orquestrador:" → é do
@@ -614,7 +620,8 @@ def cmd_ajustar(a):
         else:
             bot = "po"
             pede = (f"Refaça a proposta com o ajuste abaixo e mova de novo para AWAITING_APPROVAL "
-                    f"(`--ev proposta=...`). Ajuste {voltas + 1}/{MAX_AJUSTES}.")
+                    f"(`--ev proposta=... --ev evidencias=... --ev corpos=...`). "
+                    f"Ajuste {voltas + 1}/{MAX_AJUSTES}.")
     elif estado == "AWAITING_SPEC_APPROVAL":
         mover(proj, a.key, "SPECIFYING", motivo=texto)
         bot = "techlead"

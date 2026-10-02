@@ -1,7 +1,7 @@
 ---
 name: estado-tarefa
 description: Aplique em toda tarefa. Manifest da tarefa, máquina de estados fiscalizada pelo hermes-task (quem move, com que evidência), Definition of Done, contrato de API entre front e back, handoff estruturado e estratégia de branch por projeto.
-version: 1.2.0
+version: 1.3.0
 author: Joao Pires
 metadata:
   hermes:
@@ -41,9 +41,10 @@ Depois de cada `move`, o comando diz o status do TUPLE: mova lá também (`tuple
 | De → Para | Quem | Evidência obrigatória |
 |---|---|---|
 | RECEIVED → TRIAGED | @orquestrador | `resumo=<arquivo>` |
-| TRIAGED → AWAITING_APPROVAL | @po | `proposta=<arquivo>` (árvore Feature → Story → Task, CAs, horas) |
+| TRIAGED → AWAITING_APPROVAL | @po | `proposta=` `evidencias=` `corpos=` (skill `call-para-proposta`; o hermes-task confere evidência × proposta) |
 | AWAITING_APPROVAL → SPECIFYING | **humano** (GATE 1) | `issues=...` `via=telegram:<uid>:<msg>` |
 | AWAITING_APPROVAL → TRIAGED | **humano** (GATE 1: ajustar) | `motivo=...` (volta ao @orquestrador; máx. 3) |
+| AWAITING_APPROVAL → TRIAGED | `auditor` (hermes-delegar, antes do gate sair) | `motivo=...` `auditoria=<arquivo>` (volta ao @po; máx. 2) |
 | SPECIFYING → CLOSED | @po | só `CALL-N`: `issues=KEY1,KEY2` — a call virou issues e cada uma segue sozinha |
 | TRIAGED → CLOSED | @orquestrador ou @po | só `CALL-N` **sem trabalho**: `sem_trabalho=<por quê>` + `memoria=<arquivo>` — o humano é avisado com o motivo |
 | SPECIFYING → AWAITING_SPEC_APPROVAL | @techlead | `story=<arq>` `dor=ok` `decisoes=<o que você pergunta>` + `contrato=<arq>` se front+back + `allowed_paths` de cada dev |

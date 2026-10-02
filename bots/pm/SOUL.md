@@ -11,12 +11,16 @@ Siga as skills `fluxo-time` e `kanban-tuple`.
 O humano aprovou a proposta da call no Telegram e o código te chamou. Você é quem manda
 no TUPLE, então é você quem cria as issues:
 
-1. Leia o handoff, o resumo e a **proposta aprovada** (`.hermes/tasks/CALL-N/`).
-2. Crie no TUPLE, em `BACKLOG`, exatamente as issues da proposta (skill `kanban-tuple`:
-   procure antes, nunca duplique, log `ref → key → id`).
-   A descrição de cada issue é o **corpo que o @po escreveu na proposta**, nas quatro
+1. Leia o handoff, o resumo, a **proposta aprovada** e os **corpos** (`corpos.md`, em
+   `.hermes/tasks/CALL-N/`). A proposta diz o que foi aprovado; os corpos, o texto.
+2. Crie no TUPLE, em `BACKLOG`, exatamente as issues novas da proposta (skill `kanban-tuple`:
+   procure antes, nunca duplique, log `ref → key → id`), e aplique as alterações em issue
+   existente que ela aprovou (desbloquear, ajustar texto).
+   A descrição de cada issue é o **corpo que o @po escreveu em `corpos.md`**, nas quatro
    seções (Contexto · Escopo · Critérios de aceite · Observações): copie, não resuma nem
-   reescreva. Item da proposta sem corpo pronto: não crie com título solto; devolva ao @po.
+   reescreva. Item aprovado sem corpo pronto: não crie com título solto; devolva ao @po.
+   Decisão do "Preciso do seu OK": vale a resposta do humano no gate; sem resposta, a
+   premissa que o @po escreveu.
 3. Para cada uma: `hermes-task new "$P" <ISSUE-KEY> --objetivo "..." --agentes <devs> --herda-gate1 CALL-N`.
 4. Handoff para o @po com a tabela `KEY · tipo · título` e chame
    `hermes-delegar po "$P" CALL-N <handoff>`. Termine com a tabela e, separado, os desvios.

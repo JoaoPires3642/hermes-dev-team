@@ -70,7 +70,9 @@ def trava(manifesto):
 
 BOTS = {"orquestrador", "po", "pm", "techlead", "dev-front", "dev-back", "qa"}
 DEVS = {"dev-front", "dev-back"}
-ATORES = BOTS | {"humano"}
+# `auditor` não é bot: é o hermes-delegar devolvendo a proposta ao @po quando a auditoria
+# (sessão nova, sem o contexto de quem escreveu) acha algo perdido ou inventado.
+ATORES = BOTS | {"humano", "auditor"}
 
 ESTADOS = [
     "RECEIVED", "TRIAGED", "AWAITING_APPROVAL", "SPECIFYING", "AWAITING_SPEC_APPROVAL",
@@ -308,7 +310,11 @@ def conflito_de_branch(root, key, estrategia, nome, base):
 
 TRANSICOES = {
     ("RECEIVED", "TRIAGED"): ({"orquestrador"}, {"resumo": "arquivo"}),
-    ("TRIAGED", "AWAITING_APPROVAL"): ({"po"}, {"proposta": "arquivo"}),                   # quebra do @po
+    # A proposta do GATE 1 vem com as evidências da call (o que foi pedido, com o trecho
+    # literal) e os corpos das issues em arquivo separado. `conferir_proposta` cobra que
+    # cada evidência tenha destino na proposta e que nada na proposta venha do nada.
+    ("TRIAGED", "AWAITING_APPROVAL"): ({"po"}, {"proposta": "arquivo", "evidencias": "arquivo",
+                                                "corpos": "arquivo"}),                  # quebra do @po
     # Call que não pede trabalho (só andamento, decisão tomada, explicação): não há o que o
     # humano aprovar no GATE 1 e não há issue a criar. Fecha aqui, mas só com a informação
     # guardada em arquivo (`memoria`) e o motivo escrito — e o humano é avisado ao fim da
@@ -316,7 +322,7 @@ TRANSICOES = {
     ("TRIAGED", "CLOSED"): ({"orquestrador", "po"}, {"sem_trabalho": "texto", "memoria": "arquivo"}),
     ("AWAITING_APPROVAL", "SPECIFYING"): (H, {"issues": "texto", "via": "texto"}),        # GATE 1
     ("AWAITING_APPROVAL", "CLOSED"): (H, {"motivo": "texto"}),
-    ("AWAITING_APPROVAL", "TRIAGED"): (H, {"motivo": "texto"}),                          # GATE 1: ajustar
+    ("AWAITING_APPROVAL", "TRIAGED"): (H | {"auditor"}, {"motivo": "texto"}),            # GATE 1: ajustar
     ("SPECIFYING", "CLOSED"): ({"po"}, {"issues": "texto"}),        # só CALL-N: issues criadas e passadas adiante
     # GATE 2 agora e condicional, e a condicao e "ha algo que so o humano decide".
     #
@@ -435,6 +441,163 @@ def checa_ev(root, exig, ev):
             if v not in tipo.split("|"):
                 faltas.append(f"{k}={tipo}")
     return faltas
+
+
+# ------------------------------------------------------------------ proposta do GATE 1
+#
+# A proposta saía como 200 linhas com o corpo de cada issue dentro, e esquecia pedido da
+# call: nada obrigava a conferir item a item, então o @po improvisava a checagem enquanto
+# escrevia. Agora ele extrai antes (`evidencias.md`, um E<n> por pedido/decisão/problema,
+# com o trecho LITERAL da fonte) e o código cobra o que dá para cobrar sem modelo:
+#   - toda evidência tem destino na proposta (senão foi esquecida);
+#   - todo item da proposta cita evidência que existe (senão veio do nada);
+#   - o trecho citado está mesmo na fonte (senão é paráfrase ou invenção);
+#   - dúvida vai para "Preciso do seu OK", que é onde o humano lê;
+#   - a proposta cabe numa leitura (os corpos das issues ficam em `corpos`).
+# O que o código não pega (perdeu um sentido, decidiu sem autorização) é da auditoria do
+# hermes-delegar, numa sessão que não viu a proposta sendo escrita.
+LIMITE_PROPOSTA = 80          # linhas não vazias
+SECOES_PROPOSTA = {"resultado": "Resultado", "preciso do seu ok": "Preciso do seu OK",
+                   "alteracoes": "Alterações propostas", "nada a fazer": "Nada a fazer",
+                   "gap check": "Gap check"}
+CLASSES = {"nova": "nova", "existente": "existente", "ja feito": "feito", "feito": "feito",
+           "configuracao": "configuracao", "duvida": "duvida", "fora": "fora",
+           "duplicada": "duplicada", "duplicado": "duplicada"}
+KEY_ISSUE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+ID_EV = re.compile(r"\bE(\d+)\b")
+
+
+def _norm(t):
+    """Minúsculo, sem acento, sem pontuação, espaço único: a transcrição do ASR e o
+    trecho copiado pelo bot só precisam bater nas palavras."""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", t.casefold())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return " ".join(re.sub(r"[^\w]+", " ", t).split())
+
+
+def _caminho(root, v):
+    p = Path(v.strip().strip("`<>\"'")).expanduser()
+    return p if p.is_absolute() else root / p
+
+
+def ler_evidencias(root, arq):
+    """{ "E1": {"classe", "valor", "trecho", "fonte"} } e a lista de problemas de formato."""
+    texto = _caminho(root, arq).read_text(encoding="utf-8", errors="replace")
+    probs, evs, atual, fonte_geral = [], {}, None, None
+    for linha in texto.splitlines():
+        cab = re.match(r"^#{2,3}\s*E(\d+)\b", linha)
+        if cab:
+            atual = f"E{cab.group(1)}"
+            if atual in evs:
+                probs.append(f"{atual} aparece duas vezes em evidencias")
+            evs[atual] = {"classe": None, "valor": "", "trecho": [], "fonte": None}
+            continue
+        m_fonte = re.match(r"^\s*\**fonte\**\s*:\s*\**\s*(.+)$", linha, re.I)
+        if m_fonte:
+            if atual:
+                evs[atual]["fonte"] = m_fonte.group(1).strip()
+            else:
+                fonte_geral = m_fonte.group(1).strip()
+            continue
+        if not atual:
+            continue
+        if linha.lstrip().startswith(">"):
+            evs[atual]["trecho"].append(linha.lstrip()[1:].strip())
+            continue
+        m_cl = re.match(r"^\s*\**classe\**\s*:\s*\**\s*(.+)$", linha, re.I)
+        if m_cl:
+            valor = m_cl.group(1).strip()
+            n = _norm(valor)
+            evs[atual]["valor"] = valor
+            evs[atual]["classe"] = next((c for k, c in CLASSES.items() if n.startswith(k)), None)
+    if not evs:
+        probs.append("evidencias sem nenhum item: cada pedido, decisão ou problema da call vira "
+                     "um bloco `## E1`, `## E2`...")
+    for eid, e in evs.items():
+        trecho = " ".join(e["trecho"]).strip()
+        if not e["classe"]:
+            probs.append(f"{eid}: falta `Classe:` (nova · existente <KEY> · já feito · configuração · "
+                         f"dúvida · fora do escopo · duplicada <KEY>)")
+        elif e["classe"] in ("existente", "duplicada") and not KEY_ISSUE.search(e["valor"]):
+            probs.append(f"{eid}: classe {e['classe']} sem a KEY da issue (ex.: `existente OUVI-147`)")
+        if not trecho:
+            probs.append(f"{eid}: falta o trecho literal da fonte (linha começando com `>`)")
+            continue
+        fonte = e["fonte"] or fonte_geral
+        if not fonte:
+            probs.append(f"{eid}: sem `Fonte:` (no topo do arquivo, ou no próprio item)")
+            continue
+        fp = _caminho(root, fonte)
+        if not fp.is_file():
+            probs.append(f"{eid}: a fonte {fonte} não existe")
+            continue
+        if fp.suffix.lower() not in ("", ".md", ".txt", ".vtt", ".srt"):
+            continue      # PDF, planilha: não dá para conferir aqui; fica com a auditoria
+        corpo = _norm(fp.read_text(encoding="utf-8", errors="replace"))
+        pedacos = [_norm(p) for p in re.split(r"…|\.\.\.|\[\.\.\.\]|\[…\]", trecho)]
+        pedacos = [p for p in pedacos if p]
+        if sum(len(p.split()) for p in pedacos) < 3:
+            probs.append(f"{eid}: trecho curto demais para conferir (mínimo 3 palavras da fonte)")
+        elif any(p not in corpo for p in pedacos):
+            probs.append(f"{eid}: o trecho não está na fonte — copie as palavras como estão, sem "
+                         f"corrigir nem resumir (corte com `…`)")
+    return evs, probs
+
+
+def conferir_proposta(root, ev):
+    """Problemas da proposta do GATE 1; lista vazia = pode ir para o humano."""
+    evs, probs = ler_evidencias(root, ev["evidencias"])
+    texto = _caminho(root, ev["proposta"]).read_text(encoding="utf-8", errors="replace")
+    linhas = texto.splitlines()
+
+    cheias = sum(1 for l in linhas if l.strip())
+    if cheias > LIMITE_PROPOSTA:
+        probs.append(f"proposta com {cheias} linhas (máx. {LIMITE_PROPOSTA}): o corpo das issues vai em "
+                     f"`corpos`, não aqui")
+
+    secao, por_secao, vistas = None, {}, set()
+    blocos, bloco = [], None
+    for l in linhas:
+        m2 = re.match(r"^##\s+(.+)$", l)
+        if m2:
+            n = _norm(m2.group(1))
+            secao = next((k for k in SECOES_PROPOSTA if n.startswith(k)), n)
+            vistas.add(secao)
+            bloco = None
+            continue
+        m3 = re.match(r"^###\s+(.+)$", l)
+        if m3:
+            bloco = {"titulo": m3.group(1).strip(), "secao": secao, "ids": set()}
+            blocos.append(bloco)
+        ids = {f"E{x}" for x in ID_EV.findall(l)}
+        por_secao.setdefault(secao, set()).update(ids)
+        if bloco is not None:
+            bloco["ids"] |= ids
+
+    faltam_secoes = [v for k, v in SECOES_PROPOSTA.items() if k not in vistas]
+    if faltam_secoes:
+        probs.append("faltam as seções `## " + "`, `## ".join(faltam_secoes) +
+                     "` (pode escrever 'nenhum' dentro)")
+    citadas = set().union(*por_secao.values()) if por_secao else set()
+    esquecidas = sorted(set(evs) - citadas, key=lambda x: int(x[1:]))
+    if esquecidas:
+        probs.append("evidência sem destino na proposta (esquecida?): " + ", ".join(esquecidas) +
+                     " — cada uma vai em Alterações, Nada a fazer ou Preciso do seu OK")
+    fantasmas = sorted(citadas - set(evs), key=lambda x: int(x[1:]))
+    if fantasmas:
+        probs.append("a proposta cita evidência que não existe: " + ", ".join(fantasmas))
+    sem_ev = [b["titulo"] for b in blocos
+              if not b["ids"] and b["secao"] in ("preciso do seu ok", "alteracoes")]
+    if sem_ev:
+        probs.append("item da proposta sem evidência (de onde veio?): " +
+                     "; ".join(f"“{t[:60]}”" for t in sem_ev[:5]))
+    duvidas = [e for e, d in evs.items() if d["classe"] == "duvida"]
+    fora_do_ok = [e for e in duvidas if e not in por_secao.get("preciso do seu ok", set())]
+    if fora_do_ok:
+        probs.append("dúvida fora de “Preciso do seu OK” (é lá que o humano responde): " +
+                     ", ".join(fora_do_ok))
+    return probs
 
 
 def worktree_da_tarefa(repo, key):
@@ -691,6 +854,12 @@ def cmd_move(a):
                 if de == "SPECIFYING" and {"decisoes", "sem_decisoes"} & set(faltas):
                     negar(CAMINHOS_GATE2 + outras_faltas(faltas))
                 negar("faltou evidência: " + ", ".join(faltas))
+            if (de, para) == ("TRIAGED", "AWAITING_APPROVAL"):
+                probs = conferir_proposta(root, ev)
+                if probs:
+                    negar("a proposta não passou na conferência (formato na skill "
+                          "`call-para-proposta`):\n  - " + "\n  - ".join(probs[:15]) +
+                          (f"\n  … e mais {len(probs) - 15}" if len(probs) > 15 else ""))
 
             if (de, para) == ("IMPLEMENTING", "TESTING"):
                 feitos = set(m.get("handoffs_dev") or []) | {por}
@@ -724,7 +893,8 @@ def cmd_move(a):
                 # por que o @techlead disse que nao havia o que olhar.
                 m["aprovacoes"]["gate2"] = {"em": agora(), "via": None,
                                             "dispensado": ev.get("sem_decisoes")}
-            for k in ("resumo", "proposta", "story", "contrato", "specs", "revisao", "pr", "memoria"):
+            for k in ("resumo", "proposta", "evidencias", "corpos", "auditoria", "story", "contrato",
+                      "specs", "revisao", "pr", "memoria"):
                 if k in ev:
                     m["artefatos"][k] = ev[k]
             if "relatorio" in ev:
@@ -876,7 +1046,9 @@ def cmd_states(_):
     print("Estados:", " → ".join(ESTADOS[:-1]), "· BLOCKED (qualquer ator entra; só humano sai)\n")
     for (de, para), (quem, exig) in TRANSICOES.items():
         print(f"{de:24} → {para:24} por {','.join(sorted(quem)):28} evidência: {', '.join(exig) or '—'}")
-    print("\nSPECIFYING→AWAITING_SPEC_APPROVAL também exige contrato (se front+back) e allowed_paths de cada dev.")
+    print("\nTRIAGED→AWAITING_APPROVAL confere evidencias × proposta: toda evidência com destino, "
+          "nada sem evidência, trecho literal na fonte (skill call-para-proposta).")
+    print("SPECIFYING→AWAITING_SPEC_APPROVAL também exige contrato (se front+back) e allowed_paths de cada dev.")
     print("TESTING→AWAITING_COMMIT (DoD, do @qa) exige evidencia_visual se tem_ui e confere allowed_paths.")
     print("AWAITING_COMMIT→AWAITING_REVIEW é do dev: commit e push do que o QA aprovou.")
     print("IMPLEMENTING→TESTING só avança quando todos os devs da tarefa entregaram handoff.")

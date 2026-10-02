@@ -223,8 +223,8 @@ class TestGates(Base):
         self.ok(self.a.dispatch("ajustar", "CALL-1", "--via", VIA, "--", "tira a busca"))
         self.assertEqual(self.a.estado(proj, "CALL-1"), "TRIAGED")
         self.a.esperar_rodadas(proj)
-        self.assertEqual(self.a.chats()[-1]["perfil"], "po")
-        self.assertIn("tira a busca", self.a.chats()[-1]["query"])
+        self.assertEqual(self.a.chats_de_bot()[-1]["perfil"], "po")
+        self.assertIn("tira a busca", self.a.chats_de_bot()[-1]["query"])
 
     def test_ajustar_com_prefixo_vai_para_o_orquestrador(self):
         proj = self.triar_call()
@@ -259,11 +259,10 @@ class TestHermesTask(Base):
 
     def test_proposta_do_gate1_so_pelo_po(self):
         self.nova("CALL-1", "TRIAGED")
-        arq = self.a.acme / "AGENTS.md"
+        ev = self.a.proposta(self.a.acme, "CALL-1")
         self.negado(self.a.task("move", str(self.a.acme), "CALL-1", "AWAITING_APPROVAL",
-                                "--by", "orquestrador", "--ev", f"proposta={arq}"), "quem pode: po")
-        self.ok(self.a.task("move", str(self.a.acme), "CALL-1", "AWAITING_APPROVAL",
-                            "--by", "po", "--ev", f"proposta={arq}"))
+                                "--by", "orquestrador", *ev), "quem pode: po")
+        self.ok(self.a.task("move", str(self.a.acme), "CALL-1", "AWAITING_APPROVAL", "--by", "po", *ev))
 
     def test_herda_gate1_so_de_call_aprovada(self):
         self.nova("CALL-1", "TRIAGED")

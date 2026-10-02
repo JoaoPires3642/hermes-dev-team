@@ -46,6 +46,8 @@ fake = Path(os.environ["FAKE_DIR"])
 a = sys.argv[1:]
 perfil = a[a.index("-p") + 1] if "-p" in a else None
 
+PROPOSTA_VALIDA = {PROPOSTA_VALIDA!r}
+
 def log(nome, dados):
     with open(fake / nome, "a", encoding="utf-8") as f:
         f.write(json.dumps(dados, ensure_ascii=False) + "\n")
@@ -61,6 +63,21 @@ if "send" in a:
     log("sends.jsonl", {{"perfil": perfil, "texto": texto}})
     sys.exit(0)
 
+if "chat" in a and "-auditoria-" in a[a.index("--continue") + 1]:
+    # sessão de auditoria do GATE 1: responde o que fake/auditorias.json mandar (uma
+    # resposta por chamada, na ordem), senão "limpo"
+    sessao = a[a.index("--continue") + 1]
+    log("chats.jsonl", {{"perfil": perfil, "projeto": a[a.index("--in") + 1], "sessao": sessao,
+                         "key": sessao.split("-po-auditoria-")[0], "auditoria": True,
+                         "query": Path(a[a.index("--query-file") + 1]).read_text(encoding="utf-8")}})
+    fila = fake / "auditorias.json"
+    respostas = json.loads(fila.read_text()) if fila.exists() else []
+    resp = respostas.pop(0) if respostas else "## Perdeu\n- nada\n\nVeredito: limpo"
+    if fila.exists():
+        fila.write_text(json.dumps(respostas))
+    print(resp)
+    sys.exit(0)
+
 if "chat" in a:
     proj = Path(a[a.index("--in") + 1])
     sessao = a[a.index("--continue") + 1]
@@ -69,15 +86,39 @@ if "chat" in a:
                          "query": Path(a[a.index("--query-file") + 1]).read_text(encoding="utf-8")}})
     acoes = json.loads((fake / "acoes.json").read_text()) if (fake / "acoes.json").exists() else {{}}
     for estado, ev in acoes.get(perfil, []):
-        arq = proj / ".hermes" / "tasks" / key / f"{{ev}}.md"
+        pasta = proj / ".hermes" / "tasks" / key
+        arq = pasta / f"{{ev}}.md"
         arq.write_text(f"{{ev}} de teste", encoding="utf-8")
-        subprocess.run([sys.executable, str(Path(__file__).parent / "hermes-task"), "move", str(proj), key,
-                        estado, "--by", perfil, "--ev", f"{{ev}}={{arq}}"], check=True, capture_output=True, creationflags=SEM_JANELA)
+        evs = [f"{{ev}}={{arq}}"]
+        if estado == "AWAITING_APPROVAL":
+            # a proposta do GATE 1 vem com evidências e corpos, e o hermes-task confere
+            evs = []
+            for nome, texto in PROPOSTA_VALIDA.items():
+                (pasta / nome).write_text(texto.replace("$PASTA", str(pasta)), encoding="utf-8")
+                evs.append(f"{{nome.split('.')[0]}}={{pasta / nome}}")
+        cmd = [sys.executable, str(Path(__file__).parent / "hermes-task"), "move", str(proj), key,
+               estado, "--by", perfil]
+        for e in evs:
+            cmd += ["--ev", e]
+        subprocess.run(cmd, check=True, capture_output=True, creationflags=SEM_JANELA)
     print(f"resumo de teste do @{{perfil}}")
     codigo = fake / "chat_exit"
     sys.exit(int(codigo.read_text()) if codigo.exists() else 0)
 sys.exit(0)
 '''
+
+
+# A menor proposta que passa na conferência do hermes-task: uma evidência citada da
+# fonte, as cinco seções, e o item da proposta apontando para ela.
+PROPOSTA_VALIDA = {
+    "fonte.md": "**Ana:** quero um relatório de vendas por mês, com total por loja.\n",
+    "evidencias.md": "Fonte: $PASTA/fonte.md\n\n## E1 · pedido\n> quero um relatório de vendas por mês\n"
+                     "Classe: nova\n",
+    "proposta.md": "# Proposta\n\n## Resultado\n1 issue nova\n\n## Preciso do seu OK\nnenhum\n\n"
+                   "## Alterações propostas\n### Nova · feat: relatório mensal (E1) · 6h\n\n"
+                   "## Nada a fazer\nnenhum\n\n## Gap check\nEvidências: 1 · com destino: 1\n",
+    "corpos.md": "## feat: relatório mensal\nContexto: E1\n",
+}
 
 
 class Ambiente:
@@ -93,7 +134,8 @@ class Ambiente:
         for nome in ("call-dispatch", "hermes-delegar", "hermes-task", "resumo-do-dia"):
             shutil.copy(REPO / "bin" / nome, self.bin / nome)
         falso = self.bin / "hermes"
-        falso.write_text(HERMES_FALSO.format(python=sys.executable), encoding="utf-8")
+        falso.write_text(HERMES_FALSO.format(python=sys.executable, PROPOSTA_VALIDA=PROPOSTA_VALIDA),
+                         encoding="utf-8")
         falso.chmod(falso.stat().st_mode | stat.S_IEXEC)
         if os.name == "nt":
             # No Windows o shebang nao existe e o `shutil.which` so enxerga o que casa
@@ -170,6 +212,25 @@ class Ambiente:
     def acoes(self, **por_bot):
         """acoes(orquestrador=[("TRIAGED", "resumo")]): o que cada bot falso faz na rodada."""
         (self.fake / "acoes.json").write_text(json.dumps(por_bot), encoding="utf-8")
+
+    def proposta(self, projeto, key, **trocar):
+        """Grava a proposta válida (PROPOSTA_VALIDA) na pasta da tarefa, com os arquivos de
+        `trocar` substituídos ({"proposta.md": "..."}), e devolve os `--ev` do move."""
+        pasta = projeto / ".hermes" / "tasks" / key
+        args = []
+        for nome, texto in {**PROPOSTA_VALIDA, **{k.replace("_", "."): v for k, v in trocar.items()}}.items():
+            (pasta / nome).write_text(texto.replace("$PASTA", str(pasta)), encoding="utf-8")
+            if nome != "fonte.md":
+                args += ["--ev", f"{nome.split('.')[0]}={pasta / nome}"]
+        return args
+
+    def chats_de_bot(self):
+        """As rodadas de bot, sem as sessões de auditoria do GATE 1."""
+        return [c for c in self.chats() if not c.get("auditoria")]
+
+    def auditorias(self, *respostas):
+        """O que a sessão de auditoria do GATE 1 responde, uma por chamada; depois, limpo."""
+        (self.fake / "auditorias.json").write_text(json.dumps(list(respostas)), encoding="utf-8")
 
     def falhar_envios(self, n):
         (self.fake / "send_falhas").write_text(str(n))

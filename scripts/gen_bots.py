@@ -18,7 +18,9 @@ FORMAS = {
     "arquiteto": ("hexagon", 163), "manutencao": ("diamond", 223),
 }
 
-FINGIR_HUMANO = ["hermes-task * --by humano*", "hermes-task *--by=humano*"]
+# `auditor` e o hermes-delegar devolvendo a proposta do GATE 1 ao @po: tambem nao e bot.
+FINGIR_HUMANO = ["hermes-task * --by humano*", "hermes-task *--by=humano*",
+                 "hermes-task * --by auditor*", "hermes-task *--by=auditor*"]
 # Gate e delegação são do código, não do bot. `call-dispatch` só o humano aciona (pelo
 # plugin hermes-gates no Telegram); o @orquestrador só nasce pelo call-dispatch; e
 # `hermes -p`/`hermes chat` cru pularia as checagens do hermes-delegar (pasta, estado,
@@ -33,7 +35,8 @@ PULAR_GATE = ACOES_DISPATCH + ["hermes-delegar orquestrador*", "hermes -p*", "he
 # approvals.deny do Hermes: fnmatch no comando INTEIRO, por isso o * dos dois lados.
 # Bloqueia até sob --yolo. É o que segura @orquestrador/@po/@pm, que saíram do Kiro e
 # não passam mais pela política dele.
-HERMES_DENY = (["*--by humano*", "*--by=humano*", "*--by @humano*"]
+HERMES_DENY = (["*--by humano*", "*--by=humano*", "*--by @humano*",
+                "*--by auditor*", "*--by=auditor*"]
                + ["*%s" % x for x in ACOES_DISPATCH]
                # `hermes -p <bot> chat` cru pula as checagens do hermes-delegar (pasta,
                # estado, handoff) e `send` fala no lugar de outro bot. O RESTO de
@@ -138,8 +141,10 @@ BOTS = {
     },
     "po": {
         "model": "claude-sonnet-5-5", "provider": "anthropic",  # dor -> user story: escrita estruturada sobre contexto ja limpo
-        "desc": "Product Owner: antes do GATE 1, quebra o resumo da call em Feature → Story → Task com critérios de aceite e horas (a proposta); depois, mantém PRD/épicos/stories BMAD em docs/.",
+        "desc": "Product Owner: antes do GATE 1, extrai as evidências da call, prova o que já existe e escreve a proposta curta de decisão + os corpos das issues; depois, mantém PRD/épicos/stories BMAD em docs/.",
         "pet": "peri-the-owl",
+        # evidencia -> classe -> gap check -> proposta; o hermes-task confere o formato
+        "extra_skills": ["call-para-proposta"],
         "toolsets": BASE_TOOLS + ["file", "terminal"],
         "kiro_tools": ["read", "write", "shell"],
         "kiro_allowed": ["read"],

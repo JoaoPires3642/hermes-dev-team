@@ -36,6 +36,8 @@ approvals:
     - "*--by humano*"
     - "*--by=humano*"
     - "*--by @humano*"
+    - "*--by auditor*"
+    - "*--by=auditor*"
     - "*call-dispatch varrer*"
     - "*call-dispatch cliente*"
     - "*call-dispatch novo*"

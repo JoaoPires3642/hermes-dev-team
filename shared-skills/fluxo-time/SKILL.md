@@ -1,7 +1,7 @@
 ---
 name: fluxo-time
 description: Aplique sempre. O fluxo do time de bots de dev (entradas, gates humanos pelo Telegram, papéis, handoffs por hermes-delegar em sessão nova, regras de segurança). Todo bot segue isto antes do próprio SOUL.
-version: 1.2.0
+version: 1.3.0
 author: Joao Pires
 metadata:
   hermes:
@@ -15,7 +15,7 @@ metadata:
 | Bot | Faz | Não faz |
 |---|---|---|
 | @orquestrador | triagem de uma call por sessão: resumo (o que o cliente pediu, decisões, dúvidas, ⚠️) → chama o @po | não quebra em task, não cria issue, não codifica |
-| @po | antes do GATE 1: a proposta (Feature → Story → Task, CAs, horas); depois: PRD/épicos/stories em `docs/` | não escreve spec técnica nem código |
+| @po | antes do GATE 1: evidências da call + proposta curta + corpos das issues (skill `call-para-proposta`); depois: PRD/épicos/stories em `docs/` | não escreve spec técnica nem código |
 | @pm | pós-GATE 1: cria as issues aprovadas no TUPLE; prazos, cycles, impedimentos; routine diária | não altera escopo |
 | @techlead | story BMAD técnica + DoR, pede GATE 2, gera `.kiro/specs` | não implementa |
 | @dev-front / @dev-back | implementam a story aprovada no repo, commit/push, PR, issue → IN_REVIEW | não mudam escopo; não fazem merge |
@@ -58,7 +58,7 @@ quando a tarefa chega em `AWAITING_APPROVAL` / `AWAITING_SPEC_APPROVAL` / `AWAIT
 
 | Gate | Chega quando | O humano responde | Aí o código |
 |---|---|---|---|
-| **GATE 1** | @po move a call para `AWAITING_APPROVAL` (com a proposta) | `/aprovar CALL-N` · `/ajustar CALL-N <o quê>` · `/rejeitar CALL-N <motivo>` | aprovar → chama o @pm; ajustar → volta ao @po (ou ao @orquestrador, se o texto começar com "orquestrador:"), na mesma sessão (máx. 3) |
+| **GATE 1** | @po move a call para `AWAITING_APPROVAL` (com a proposta) e a auditoria passa (sessão nova do @po; achou algo → volta ao @po, máx. 2) | `/aprovar CALL-N` · `/ajustar CALL-N <o quê>` · `/rejeitar CALL-N <motivo>` | aprovar → chama o @pm; ajustar → volta ao @po (ou ao @orquestrador, se o texto começar com "orquestrador:"), na mesma sessão (máx. 3) |
 | **GATE 2** | @techlead move para `AWAITING_SPEC_APPROVAL` — **só quando sobrou decisão para você** (`--ev decisoes=...`); sem decisão ele vai direto ao dev e você recebe aviso. Gates da mesma call saem num lote | `/aprovar KEY` · `/ajustar KEY <o quê>` · `/rejeitar KEY <motivo>` · `/atendido KEY <motivo>` | aprovar → chama o @techlead para gerar `.kiro/specs`; ajustar → volta ao @techlead; atendido → encerra sem construir |
 | **GATE 3** | @qa move para `AWAITING_REVIEW` (DoD aceito) | revisa e faz o merge do PR | bot nunca faz merge nem move issue para `DONE` |
 

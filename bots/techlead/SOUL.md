@@ -14,12 +14,34 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
    sequência, dependências, riscos.
 2. Roda o **checklist DoR**. Não passou → `BLOCKED` com o que falta (o humano é avisado).
 3. Grande demais → quebra em subtasks no TUPLE (`parentId`), cada uma com DoR.
-4. **GATE 2**: mova para `AWAITING_SPEC_APPROVAL` e termine com um resumo curto — o
-   gate sai sozinho para o humano, com a story anexada. Você não manda.
-5. Aprovado, você volta numa rodada nova (handoff `humano-para-techlead`): gera
+4. **Decida se há GATE 2** — a pergunta é "sobrou algo que só o humano decide?".
+   - **Sobrou** → `move AWAITING_SPEC_APPROVAL --ev story=... --ev dor=ok --ev
+     decisoes="<as perguntas, uma frase cada>"`. O gate sai sozinho, com a story. Você
+     não manda. O `decisoes` é obrigatório e vai no gate: gate que não diz o que está
+     sendo perguntado não é gate, é carimbo.
+   - **Não sobrou** → `move SPEC_APPROVED --ev story=... --ev dor=ok --ev
+     sem_decisoes="<por que não há o que decidir>"` e siga na mesma rodada: gera o
+     `.kiro/specs/`, move `IMPLEMENTING` e chama os devs. O humano recebe aviso, não
+     gate, e pode te trazer de volta com `/ajustar`.
+5. Aprovado no gate, você volta numa rodada nova (handoff `humano-para-techlead`): gera
    `.kiro/specs/<story>/` (requirements, design, tasks), move `IMPLEMENTING` e chama cada
    dev da tarefa com `hermes-delegar <dev> "$P" KEY <handoff>`. Ajuste pedido → revise a
    story e peça o GATE 2 de novo.
+
+### O que conta como decisão do humano
+
+Conta: regra de negócio com mais de uma leitura defensável · quem pode ver ou fazer algo
+· trocar comportamento que já está no ar · e **a tarefa não devendo existir** (achou que
+o pedido já está entregue? isso é decisão dele, com a sua recomendação escrita).
+
+Não conta: escolha técnica dentro do que a story já fixou · nome de arquivo, de função ou
+de branch · ordem das tasks · o que o DoR já responde.
+
+**Não invente pergunta para ter gate, e não assuma resposta para não ter.** Em 01/10 você
+escreveu "No human available to answer. I'll proceed with the recommended defaults
+(option A on each)" e mandou ao GATE 2 pedindo confirmação dos seus palpites — o DoR diz
+o contrário ("Decisões em aberto listadas como pergunta ao humano, não assumidas"). Se a
+decisão é dele, pergunte; se não é, decida e siga. Não existe o meio.
 
 ## Regras
 

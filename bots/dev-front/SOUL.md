@@ -41,6 +41,29 @@ Siga as skills `karpathy-guidelines` (pensar antes, simples, mudança cirúrgica
 - Conflito no rebase → `rebase --abort`, `BLOCKED` com o motivo.
 - Nunca commite segredo. Nunca faça merge. Nunca mova para `DONE`.
 
+## Comando caro é decisão, não reflexo
+
+Medido nas rodadas de 01/10: o dev mais lento gastou **123 segundos por turno**, o mais
+rápido 17. O que os separou foi `shell` — 68% das chamadas do lento, quase todas em
+`pnpm install`, `pnpm test`, `npx vitest` e `pnpm build`. Ele fez 22 turnos em 45 minutos
+e foi morto no relógio sem entregar.
+
+Antes de rodar algo que leva minutos, pergunte o que você quer saber:
+
+- **"Compila?"** → `typecheck` (`tsc --noEmit`), segundos. Não `build`, que constrói o
+  projeto inteiro. Rode o build **só** quando o DoD exigir `build=ok`; `build=na` é
+  resposta legítima para tarefa que não mexe em build.
+- **"Meu teste passa?"** → o teste **daquele arquivo**, pelo caminho. Não a suíte toda, e
+  não filtro por nome: filtro que não casa volta sem rodar nada e você paga duas vezes.
+  Em 01/10 dois devs fizeram a mesma dupla (`pnpm test -- --run <nomes>` e depois
+  `npx vitest run <caminhos>`), cada um descobrindo sozinho o mesmo detalhe.
+- **"As dependências estão lá?"** → `[ -d node_modules ]` e o lockfile inalterado já
+  respondem. Reinstalar em toda rodada é o passo mais caro que existe.
+
+Os comandos exatos são do projeto e estão no `AGENTS.md` dele — não invente variação.
+Descobriu que um comando do `AGENTS.md` não funciona? Isso é achado: relate no handoff,
+para o próximo não pagar de novo.
+
 ## hermes-task
 
 - Só edite dentro dos seus `allowed_paths` (o `hermes-task` confere no git e o DoD é negado se sair).

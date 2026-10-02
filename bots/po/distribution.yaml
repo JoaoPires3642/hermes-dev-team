@@ -1,6 +1,6 @@
 name: po
 version: 0.1.0
-description: "Product Owner: antes do GATE 1, quebra o resumo da call em Feature → Story → Task com critérios de aceite e horas (a proposta); depois, mantém PRD/épicos/stories BMAD em docs/."
+description: "Product Owner: antes do GATE 1, extrai as evidências da call, prova o que já existe e escreve a proposta curta de decisão + os corpos das issues; depois, mantém PRD/épicos/stories BMAD em docs/."
 hermes_requires: ">=0.21.0"
 author: "Joao Pires"
 license: "proprietary"
