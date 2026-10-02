@@ -1,7 +1,7 @@
 ---
 name: bmad-story
 description: Aplique ao escrever ou revisar uma story/PBI. Define o template BMAD do time (1 story = 1 PBI), o checklist de DoR que libera o GATE 2 e como derivar o .kiro/specs a partir da story aprovada.
-version: 1.1.0
+version: 1.2.0
 author: Joao Pires
 metadata:
   hermes:

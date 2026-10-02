@@ -1,7 +1,7 @@
 ---
 name: estado-tarefa
 description: Aplique em toda tarefa. Manifest da tarefa, máquina de estados fiscalizada pelo hermes-task (quem move, com que evidência), Definition of Done, contrato de API entre front e back, handoff estruturado e estratégia de branch por projeto.
-version: 1.1.0
+version: 1.2.0
 author: Joao Pires
 metadata:
   hermes:
